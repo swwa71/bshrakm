@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="بوابة بشراكم لإدارة ملفات الموظفين والمجلدات وصلاحيات الاطلاع.">
+  <title>بشراكم | بوابة الموظفين</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <section id="login-screen" class="login-screen">
+    <div class="login-art" role="img" aria-label="شعار بشراكم، الجمعية الخيرية لتحفيظ القرآن الكريم بمنطقة الجوف"></div>
+    <div class="login-panel">
+      <div class="login-content">
+        <div class="brand login-brand" role="img" aria-label="شعار جمعية بشراكم"></div>
+        <span class="eyebrow">بوابة الموظفين</span>
+        <h1>مرحبًا بعودتك</h1>
+        <p class="muted login-intro">سجّل دخولك للوصول إلى ملفاتك ومجلداتك.</p>
+        <form id="login-form">
+          <label for="login-username">اسم المستخدم</label>
+          <input id="login-username" name="username" autocomplete="username" maxlength="64" required autofocus>
+          <label for="login-password">كلمة المرور</label>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+          <p id="login-error" class="form-message error" role="alert"></p>
+          <button type="submit" class="primary full">تسجيل الدخول <span aria-hidden="true">←</span></button>
+        </form>
+        <p class="login-help">للحصول على حساب أو استعادة كلمة المرور، تواصل مع مسؤول النظام.</p>
+      </div>
+      <p class="login-footer">الجمعية الخيرية لتحفيظ القرآن الكريم بمنطقة الجوف</p>
+    </div>
+  </section>
+
+  <div id="portal" hidden>
+    <header class="topbar">
+      <div class="identity"><div class="brand small" role="img" aria-label="شعار جمعية بشراكم"></div><div class="identity-text"><strong>بوابة الموظفين</strong><span>إدارة الملفات والمشاركة</span></div></div>
+      <div class="account"><div><strong id="account-name"></strong><span id="account-role"></span></div><button id="logout" class="quiet">تسجيل الخروج</button></div>
+    </header>
+    <div class="workspace">
+      <aside class="sidebar">
+        <span class="nav-label">مساحة العمل</span>
+        <nav aria-label="القائمة الرئيسية">
+          <button class="nav-item active" data-view="files" aria-current="page"><span aria-hidden="true">▤</span> الملفات</button>
+          <button class="nav-item" data-view="shares"><span aria-hidden="true">◎</span> أذونات الاطلاع</button>
+          <button class="nav-item admin-only" data-view="admin" hidden><span aria-hidden="true">⚙</span> إدارة النظام</button>
+        </nav>
+        <div class="sidebar-note"><span class="note-icon" aria-hidden="true">◷</span><strong>جلستك محمية</strong><p>يتم تسجيل الخروج بعد ١٥ دقيقة من عدم النشاط.</p></div>
+      </aside>
+      <main id="main-content" tabindex="-1">
+        <div id="notice" class="notice" role="status" hidden></div>
+        <section id="files-view">
+          <div class="page-heading"><div><span class="eyebrow">مساحة الملفات</span><h1>ملفاتك، في مكان واحد</h1><p class="muted">ارفع ملفاتك إلى المجلد المناسب، وتحكّم بمن يمكنه الاطلاع عليها.</p></div><span class="tag">حتى ١ جيجابايت لكل ملف</span></div>
+          <section class="upload-panel" aria-labelledby="upload-title">
+            <div class="section-title"><h2 id="upload-title">رفع ملف جديد</h2><span class="step-label">اختر المجلد أولًا</span></div>
+            <form id="upload-form">
+              <div class="upload-fields"><div><label for="upload-folder">المجلد المستهدف <span class="required">*</span></label><select id="upload-folder" required><option value="">اختر مجلدًا</option></select></div>
+                <div class="file-field"><label for="upload-file">الملف <span class="required">*</span></label><input id="upload-file" type="file" required disabled><span id="file-hint" class="field-hint">حدد المجلد لتتمكن من اختيار الملف.</span></div>
+                <button id="upload-button" class="primary" type="submit" disabled>↑ رفع الملف</button></div>
+              <div id="upload-progress-wrap" hidden><div class="progress-label"><span id="upload-status">جارٍ رفع الملف…</span><button type="button" id="cancel-upload" class="text-button">إلغاء الرفع</button></div><progress id="upload-progress" max="100" value="0" aria-label="تقدم رفع الملف"></progress></div>
+            </form>
+          </section>
+          <section class="file-panel" aria-labelledby="file-list-title">
+            <div class="section-title file-toolbar"><div><h2 id="file-list-title">سجل الملفات</h2><span id="file-count" class="muted"></span></div><div class="filters"><label class="sr-only" for="file-scope">نوع الملفات</label><select id="file-scope"><option value="own">ملفاتي</option><option value="shared">ملفات مشتركة معي</option></select><label class="sr-only" for="file-folder">تصفية بالمجلد</label><select id="file-folder"><option value="">جميع المجلدات</option></select><button id="refresh-files" class="quiet">تحديث</button></div></div>
+            <div class="table-wrap"><table><thead><tr><th>اسم الملف</th><th>المجلد</th><th>المالك</th><th>الحجم</th><th>تاريخ الرفع</th><th>الإجراءات</th></tr></thead><tbody id="files-body"></tbody></table></div>
+            <div id="files-empty" class="empty-state" hidden><span class="empty-icon" aria-hidden="true">▤</span><h3 id="empty-title">لا توجد ملفات بعد</h3><p id="empty-description">اختر مجلدًا وارفع أول ملف لك.</p></div>
+          </section>
+        </section>
+        <section id="shares-view" hidden>
+          <div class="page-heading"><div><span class="eyebrow">الخصوصية والصلاحيات</span><h1>أذونات الاطلاع</h1><p class="muted">اسمح لمستخدم بالاطلاع على جميع ملفاتك الحالية والمستقبلية وتنزيلها، دون تعديلها أو حذفها.</p></div></div>
+          <div id="sharing-state" class="notice"></div>
+          <section class="panel"><h2>إضافة إذن جديد</h2><form id="share-form" class="inline-form"><div class="grow"><label for="share-user">المستخدم</label><select id="share-user" required><option value="">اختر مستخدمًا</option></select></div><button id="share-button" class="primary">منح الإذن</button></form></section>
+          <section class="panel"><h2>المسموح لهم بالاطلاع على ملفاتي</h2><div id="shares-list" class="item-list"></div><p id="shares-empty" class="muted" hidden>لم تمنح أي مستخدم إذنًا حتى الآن.</p></section>
+        </section>
+        <section id="admin-view" hidden>
+          <div class="page-heading"><div><span class="eyebrow">مسؤول النظام</span><h1>إدارة النظام</h1><p class="muted">إدارة الحسابات والمجلدات والتحكم بالمشاركة بين المستخدمين.</p></div><button id="new-user" class="primary">+ إنشاء مستخدم</button></div>
+          <section class="panel sharing-setting"><div><h2>المشاركة والاطلاع بين المستخدمين</h2><p class="muted">إغلاق المشاركة يوقف أذونات الاطلاع للجميع. تبقى الأذونات محفوظة وتعود عند فتح المشاركة.</p></div><button id="toggle-sharing" class="quiet" role="switch" aria-checked="false">تحميل…</button></section>
+          <section class="panel"><div class="section-title"><h2>حسابات المستخدمين</h2><span class="muted">تعديل الحسابات متاح، وحذفها غير متاح</span></div><div class="table-wrap"><table><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الصلاحية</th><th>الإجراءات</th></tr></thead><tbody id="users-body"></tbody></table></div></section>
+          <section class="panel"><h2>مجلدات البوابة</h2><form id="folder-form" class="inline-form"><div class="grow"><label for="folder-name">اسم المجلد الجديد</label><input id="folder-name" maxlength="80" required></div><button class="primary">إضافة مجلد</button></form><div id="folders-list" class="item-list"></div></section>
+        </section>
+      </main>
+    </div>
+    <footer class="portal-footer">بشراكم <span aria-hidden="true">·</span> الجمعية الخيرية لتحفيظ القرآن الكريم بمنطقة الجوف</footer>
+  </div>
+
+  <dialog id="user-dialog"><form id="user-form"><div class="dialog-heading"><h2 id="user-dialog-title">إنشاء مستخدم</h2><button type="button" class="icon-button close-dialog" aria-label="إغلاق">×</button></div><input id="edit-user-id" type="hidden"><label for="user-name">الاسم</label><input id="user-name" maxlength="100" required><label for="user-username">اسم المستخدم</label><input id="user-username" maxlength="64" autocomplete="off" required><p class="field-hint">يقبل الحروف أو الأرقام أو مزيجًا منهما، بدون مسافات.</p><label for="user-password">كلمة المرور</label><input id="user-password" type="password" autocomplete="new-password"><p id="password-hint" class="field-hint">من ٤ إلى ٢٠ خانة، دون اشتراط نوع معين.</p><label for="user-role">صلاحية المستخدم</label><select id="user-role"><option value="user">مستخدم عادي</option><option value="admin">مسؤول نظام</option></select><p class="field-hint">مسؤول النظام يستطيع إدارة الحسابات والصلاحيات والمجلدات.</p><p id="user-error" class="error" role="alert"></p><div class="dialog-actions"><button class="primary" type="submit">حفظ المستخدم</button><button type="button" class="quiet close-dialog">إلغاء</button></div></form></dialog>
+  <dialog id="file-dialog"><form id="file-edit-form"><div class="dialog-heading"><h2>تعديل الملف</h2><button type="button" class="icon-button close-dialog" aria-label="إغلاق">×</button></div><input id="edit-file-id" type="hidden"><label for="edit-file-name">اسم الملف</label><input id="edit-file-name" maxlength="240" required><label for="edit-file-folder">المجلد</label><select id="edit-file-folder" required></select><p id="file-error" class="error" role="alert"></p><div class="dialog-actions"><button class="primary">حفظ التعديلات</button><button type="button" class="quiet close-dialog">إلغاء</button></div></form></dialog>
+  <dialog id="folder-dialog"><form id="folder-edit-form"><div class="dialog-heading"><h2>تغيير اسم المجلد</h2><button type="button" class="icon-button close-dialog" aria-label="إغلاق">×</button></div><input id="edit-folder-id" type="hidden"><label for="edit-folder-name">اسم المجلد</label><input id="edit-folder-name" maxlength="80" required><p id="folder-error" class="error" role="alert"></p><div class="dialog-actions"><button class="primary">حفظ الاسم</button><button type="button" class="quiet close-dialog">إلغاء</button></div></form></dialog>
+  <dialog id="confirm-dialog"><form method="dialog"><h2>حذف الملف</h2><p id="confirm-message"></p><p class="muted">لا يمكن التراجع عن حذف الملف.</p><div class="dialog-actions"><button class="danger" value="confirm">حذف الملف</button><button class="quiet" value="cancel" autofocus>إلغاء</button></div></form></dialog>
+</body>
+</html>
