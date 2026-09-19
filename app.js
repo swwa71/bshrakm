@@ -3,7 +3,9 @@ const $$ = selector => [...document.querySelectorAll(selector)];
 let currentUser = null, folders = [], files = [], users = [], sharedUsers = [];
 let sharingEnabled = true, lastActivity = 0, idleMs = 900000, activityPending = false, heartbeatBusy = false;
 let activeUpload = null, currentView = 'files', lastHeartbeat = 0;
-let loginRevealTimer;
+let loginIntroSequence = 0;
+let loginIntroAnimations = [];
+let loginArtworkReady;
 // Each tab has its own demo login so different accounts can be compared.
 const channel = null;
 const arabicDate = new Intl.DateTimeFormat('ar-SA', { calendar: 'gregory', year: 'numeric', month: 'short', day: 'numeric' });
@@ -13,22 +15,73 @@ function node(tag, text, className) { const element = document.createElement(tag
 function action(label, callback, className = 'text-button') { const b = node('button', label, className); b.type = 'button'; b.addEventListener('click', () => Promise.resolve(callback()).catch(showError)); return b; }
 function notice(message, isError = false) { const el = $('#notice'); el.textContent = message; el.className = isError ? 'notice error' : 'notice'; el.hidden = false; }
 function showError(error) { if (currentUser) notice(error.message || 'تعذّر إكمال العملية.', true); }
-function revealLoginControls() {
-  const fields = $('.login-fields');
-  clearTimeout(loginRevealTimer);
-  const unlock = () => {
-    fields.inert = false;
-    if (!currentUser && !$('#login-screen').hidden && !matchMedia('(max-width: 780px)').matches) $('#login-username').focus({ preventScroll: true });
-  };
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !fields.getAnimations().some(animation => animation.playState === 'running')) { unlock(); return; }
-  fields.inert = true;
-  loginRevealTimer = setTimeout(unlock, 1700);
+function cancelLoginIntro() {
+  loginIntroSequence++;
+  loginIntroAnimations.forEach(animation => animation.cancel());
+  loginIntroAnimations = [];
 }
-$('.login-fields').addEventListener('animationend', event => {
-  if (event.animationName === 'login-fields-reveal') { clearTimeout(loginRevealTimer); $('.login-fields').inert = false; }
+function completeLoginIntro(sequence) {
+  if (sequence !== loginIntroSequence || currentUser || $('#login-screen').hidden) return;
+  $('#login-screen').dataset.introState = 'ready';
+  $('.login-fields').inert = false;
+  loginIntroAnimations.forEach(animation => animation.cancel());
+  loginIntroAnimations = [];
+}
+function prepareLoginArtwork() {
+  if (!loginArtworkReady) {
+    const picture = new Image(); picture.src = 'background.png';
+    const imageReady = picture.decode ? picture.decode().catch(() => {}) : Promise.resolve();
+    const fontsReady = document.fonts ? document.fonts.ready.catch(() => {}) : Promise.resolve();
+    loginArtworkReady = new Promise(resolve => {
+      const fallback = setTimeout(resolve, 2000);
+      Promise.all([imageReady, fontsReady]).then(() => { clearTimeout(fallback); resolve(); });
+    });
+  }
+  return loginArtworkReady;
+}
+async function revealLoginControls() {
+  const screen = $('#login-screen');
+  if (screen.hidden || ['running', 'ready'].includes(screen.dataset.introState)) return;
+  cancelLoginIntro();
+  const sequence = loginIntroSequence;
+  screen.dataset.introState = 'running';
+  const logo = $('.login-brand'), fields = $('.login-fields'), footer = $('.login-footer');
+  fields.inert = true;
+  await prepareLoginArtwork();
+  if (sequence !== loginIntroSequence || currentUser || screen.hidden || screen.dataset.introState !== 'running') return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || typeof logo.animate !== 'function') { completeLoginIntro(sequence); return; }
+  // Start at the actual viewport center, then move the same logo to its final place.
+  const box = logo.getBoundingClientRect();
+  const x = window.innerWidth / 2 - (box.left + box.width / 2);
+  const y = window.innerHeight / 2 - (box.top + box.height / 2);
+  const scale = Math.max(1, Math.min(1.35, (window.innerWidth - 40) / box.width));
+  const centered = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+  const easing = 'cubic-bezier(.4, 0, .2, 1)';
+  try {
+    loginIntroAnimations = [
+      logo.animate([
+        { opacity: 0, transform: centered, offset: 0 },
+        { opacity: 1, transform: centered, offset: .15 },
+        { opacity: 1, transform: centered, offset: .4, easing },
+        { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)', offset: 1 }
+      ], { duration: 1650, fill: 'both' }),
+      fields.animate([
+        { opacity: 0, transform: 'translateY(12px)' },
+        { opacity: 1, transform: 'translateY(0)' }
+      ], { duration: 650, delay: 1650, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
+      footer.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, delay: 1800, fill: 'both' })
+    ];
+    await Promise.all(loginIntroAnimations.map(animation => animation.finished));
+    completeLoginIntro(sequence);
+  } catch {
+    completeLoginIntro(sequence);
+  }
+}
+window.addEventListener('resize', () => {
+  if ($('#login-screen').dataset.introState === 'running') completeLoginIntro(loginIntroSequence);
 });
-// Animation changes opacity and transform only; reserved space prevents layout jumps.
-revealLoginControls();
+// Only transform and opacity animate; the form stays hidden and inert until the end.
+void revealLoginControls();
 
 async function api(path, options = {}) {
   try { return await window.DemoPortal.request(path, options); }
@@ -39,10 +92,12 @@ async function api(path, options = {}) {
 }
 
 function showLogin(message = '') {
+  const returningToLogin = $('#login-screen').hidden;
   currentUser = null; activityPending = false; folders = []; files = []; users = []; sharedUsers = [];
   activeUpload?.abort(); activeUpload = null;
   $$('dialog[open]').forEach(d => d.close());
   $('#portal').hidden = true; $('#login-screen').hidden = false; $('#login-password').value = '';
+  if (returningToLogin) $('#login-screen').dataset.introState = 'idle';
   $('#login-error').textContent = message; $('#notice').hidden = true;
   for (const id of ['files-body','users-body','shares-list','folders-list']) $('#' + id).replaceChildren();
   $('#user-password').value = ''; $('#upload-file').value = ''; revealLoginControls();
@@ -141,7 +196,7 @@ async function showView(view, focus = true) {
   else await loadAdmin();
 }
 async function enterPortal(data) {
-  clearTimeout(loginRevealTimer);
+  cancelLoginIntro();
   currentUser = data.user; lastActivity = data.lastActive; idleMs = data.idleMs; lastHeartbeat = Date.now();
   $('#account-name').textContent = currentUser.name;
   $('#account-role').textContent = currentUser.role === 'admin' ? 'مسؤول نظام' : 'مستخدم عادي';
