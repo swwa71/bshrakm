@@ -3,6 +3,7 @@ const $$ = selector => [...document.querySelectorAll(selector)];
 let currentUser = null, folders = [], files = [], users = [], sharedUsers = [];
 let sharingEnabled = true, lastActivity = 0, idleMs = 900000, activityPending = false, heartbeatBusy = false;
 let activeUpload = null, currentView = 'files', lastHeartbeat = 0;
+let loginRevealTimer;
 // Each tab has its own demo login so different accounts can be compared.
 const channel = null;
 const arabicDate = new Intl.DateTimeFormat('ar-SA', { calendar: 'gregory', year: 'numeric', month: 'short', day: 'numeric' });
@@ -12,6 +13,22 @@ function node(tag, text, className) { const element = document.createElement(tag
 function action(label, callback, className = 'text-button') { const b = node('button', label, className); b.type = 'button'; b.addEventListener('click', () => Promise.resolve(callback()).catch(showError)); return b; }
 function notice(message, isError = false) { const el = $('#notice'); el.textContent = message; el.className = isError ? 'notice error' : 'notice'; el.hidden = false; }
 function showError(error) { if (currentUser) notice(error.message || 'تعذّر إكمال العملية.', true); }
+function revealLoginControls() {
+  const fields = $('.login-fields');
+  clearTimeout(loginRevealTimer);
+  const unlock = () => {
+    fields.inert = false;
+    if (!currentUser && !$('#login-screen').hidden && !matchMedia('(max-width: 780px)').matches) $('#login-username').focus({ preventScroll: true });
+  };
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || !fields.getAnimations().some(animation => animation.playState === 'running')) { unlock(); return; }
+  fields.inert = true;
+  loginRevealTimer = setTimeout(unlock, 1700);
+}
+$('.login-fields').addEventListener('animationend', event => {
+  if (event.animationName === 'login-fields-reveal') { clearTimeout(loginRevealTimer); $('.login-fields').inert = false; }
+});
+// Animation changes opacity and transform only; reserved space prevents layout jumps.
+revealLoginControls();
 
 async function api(path, options = {}) {
   try { return await window.DemoPortal.request(path, options); }
@@ -28,7 +45,7 @@ function showLogin(message = '') {
   $('#portal').hidden = true; $('#login-screen').hidden = false; $('#login-password').value = '';
   $('#login-error').textContent = message; $('#notice').hidden = true;
   for (const id of ['files-body','users-body','shares-list','folders-list']) $('#' + id).replaceChildren();
-  $('#user-password').value = ''; $('#upload-file').value = ''; $('#login-username').focus();
+  $('#user-password').value = ''; $('#upload-file').value = ''; revealLoginControls();
 }
 async function logout(message = '', broadcast = true) {
   activeUpload?.abort();
@@ -108,7 +125,7 @@ function renderFiles() {
     }, 'download');
     download.setAttribute('aria-label',`تنزيل ${f.name}`); actions.append(download);
     if (f.owner_id === currentUser.id) {
-      actions.append(action('تعديل',()=>openFile(f)),action('حذف',()=>deleteFile(f),'text-button delete'));
+      actions.append(action('مشاركة',()=>openFileShare(f),'share-file-button'),action('تعديل',()=>openFile(f)),action('حذف',()=>deleteFile(f),'text-button delete'));
     } else actions.append(node('span','اطلاع فقط','muted'));
     controls.append(actions); row.append(controls); body.append(row);
   }
@@ -124,6 +141,7 @@ async function showView(view, focus = true) {
   else await loadAdmin();
 }
 async function enterPortal(data) {
+  clearTimeout(loginRevealTimer);
   currentUser = data.user; lastActivity = data.lastActive; idleMs = data.idleMs; lastHeartbeat = Date.now();
   $('#account-name').textContent = currentUser.name;
   $('#account-role').textContent = currentUser.role === 'admin' ? 'مسؤول نظام' : 'مستخدم عادي';
@@ -161,6 +179,59 @@ $('#upload-form').addEventListener('submit',async event=>{
 });
 
 function openFile(f) { $('#edit-file-id').value=f.id;$('#edit-file-name').value=f.name;fillFolders($('#edit-file-folder'),null);$('#edit-file-folder').value=f.folder_id;$('#file-error').textContent='';$('#file-dialog').showModal(); }
+async function openFileShare(file) {
+  $('#share-file-id').value = file.id;
+  $('#file-share-error').textContent = '';
+  await loadFileShare(file.id);
+  if (currentUser) $('#file-share-dialog').showModal();
+}
+async function loadFileShare(fileId) {
+  const data = await api(`/api/files/${fileId}/shares`);
+  $('#file-share-name').textContent = data.file.name;
+  const message = $('#file-share-state');
+  message.textContent = data.sharingEnabled ? 'هذا الإذن يخص الملف المحدد فقط.' : 'أغلق مسؤول النظام المشاركة حاليًا. يمكنك إلغاء الأذونات المحفوظة.';
+  message.className = data.sharingEnabled ? 'notice' : 'notice warning';
+  const select = $('#file-share-user'); select.replaceChildren();
+  const placeholder = node('option', 'اختر مستخدمًا'); placeholder.value = ''; select.append(placeholder);
+  for (const u of data.users.filter(u => !data.viewerIds.includes(u.id) && !data.allFilesViewerIds.includes(u.id))) {
+    const option = node('option', `${u.name} (${u.username})`); option.value = u.id; select.append(option);
+  }
+  select.disabled = !data.sharingEnabled;
+  $('#file-share-submit').disabled = !data.sharingEnabled || select.options.length === 1;
+  const list = $('#file-share-list'); list.replaceChildren();
+  const viewerIds = [...new Set([...data.viewerIds, ...data.allFilesViewerIds])];
+  $('#file-share-empty').hidden = viewerIds.length > 0;
+  for (const viewerId of viewerIds) {
+    const u = data.users.find(u => u.id === viewerId); if (!u) continue;
+    const item = node('div', undefined, 'list-item'); const label = node('div');
+    label.append(node('strong', u.name), node('small', u.username));
+    const inherited = data.allFilesViewerIds.includes(viewerId);
+    if (inherited) label.append(node('small', 'لديه إذن لجميع ملفاتك من صفحة أذونات الاطلاع.'));
+    item.append(label);
+    if (data.viewerIds.includes(viewerId)) {
+      item.append(action('إلغاء مشاركة الملف', async () => {
+        try {
+          await api(`/api/files/${fileId}/shares/${viewerId}`, { method: 'DELETE' });
+          await loadFileShare(fileId);
+          $('#file-share-error').textContent = '';
+          $('#file-share-state').textContent = inherited ? 'أُلغي إذن هذا الملف؛ ما زال لدى المستخدم إذن لجميع ملفاتك. لإيقافه، استخدم صفحة أذونات الاطلاع.' : 'تم إلغاء مشاركة هذا الملف مع المستخدم.';
+        } catch (error) { $('#file-share-error').textContent = error.message; }
+      }, 'quiet'));
+    } else if (inherited) item.append(node('span', 'إذن لجميع الملفات', 'role-badge'));
+    list.append(item);
+  }
+}
+$('#file-share-form').addEventListener('submit', async event => {
+  event.preventDefault(); const fileId = $('#share-file-id').value;
+  const viewerId = $('#file-share-user').value; if (!viewerId) return;
+  $('#file-share-submit').disabled = true; $('#file-share-error').textContent = '';
+  try {
+    await api(`/api/files/${fileId}/shares`, { method: 'POST', data: { viewerId } });
+    await loadFileShare(fileId); $('#file-share-state').textContent = 'تمت مشاركة الملف. يظهر للمستخدم في «ملفات مشتركة معي».';
+  } catch (error) {
+    if (currentUser) { await loadFileShare(fileId).catch(() => {}); $('#file-share-error').textContent = error.message; }
+  }
+});
 async function deleteFile(file) {
   const dialog=$('#confirm-dialog'); $('#confirm-message').textContent=`هل تريد حذف «${file.name}»؟`; dialog.returnValue=''; dialog.showModal();
   const result = await new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true}));

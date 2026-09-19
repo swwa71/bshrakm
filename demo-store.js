@@ -61,7 +61,12 @@
   async function init() {
     if (!crypto?.subtle || !crypto?.randomUUID || !window.indexedDB) throw fail(503, 'هذه التجربة تحتاج متصفحًا حديثًا. افتح index.html مباشرة في Chrome أو Edge، أو استخدم رابط HTTPS عند نشرها.');
     database = await openDatabase();
-    if (await read('state', 'portal')) return;
+    const existing = await read('state', 'portal');
+    if (existing) {
+      // Add per-file grants without recreating accounts, files or existing permissions.
+      if (!Array.isArray(existing.fileShares)) { existing.fileShares = []; await save(existing); }
+      return;
+    }
     const definitions = [
       ['admin', 'مسؤول النظام التجريبي', 'admin', '1234'],
       ['1001', 'موظف تجريبي', 'user', '1234'],
@@ -72,7 +77,7 @@
       const salt = id();
       users.push({ id: id(), username, name, role, revision: 1, salt, passwordHash: await passwordHash(password, salt) });
     }
-    await save({ users, folders: ['المستندات العامة', 'التقارير', 'النماذج'].map(name => ({ id: id(), name })), files: [], shares: [], sharingEnabled: true });
+    await save({ users, folders: ['المستندات العامة', 'التقارير', 'النماذج'].map(name => ({ id: id(), name })), files: [], shares: [], fileShares: [], sharingEnabled: true });
   }
   function lock(operation) {
     const execute = async () => { if (!startup) startup = init(); await startup; return operation(); };
@@ -87,7 +92,12 @@
     return { user, data };
   }
   function requireAdmin(state) { const s = session(state); if (s.user.role !== 'admin') throw fail(403, 'هذه العملية لمسؤول النظام.'); return s; }
-  function canRead(state, userId, file) { return file.owner_id === userId || (state.sharingEnabled && state.shares.some(s => s.ownerId === file.owner_id && s.viewerId === userId)); }
+  function canRead(state, userId, file) {
+    return file.owner_id === userId || (state.sharingEnabled && (
+      state.shares.some(s => s.ownerId === file.owner_id && s.viewerId === userId) ||
+      (state.fileShares || []).some(s => s.fileId === file.id && s.viewerId === userId)
+    ));
+  }
   function validateUser(input) {
     const username = typeof input.username === 'string' ? input.username.trim().normalize('NFC') : '';
     const name = typeof input.name === 'string' ? input.name.trim() : '';
@@ -152,6 +162,30 @@
       }
       if (path.startsWith('/api/shares/') && method === 'DELETE') { state.shares = state.shares.filter(s => !(s.ownerId === user.id && s.viewerId === path.split('/').at(-1))); await save(state); return { ok: true }; }
       if (path === '/api/files' && method === 'GET') return { sharingEnabled: state.sharingEnabled, files: state.files.filter(f => canRead(state, user.id, f)).map(f => ({ ...f, owner_name: state.users.find(u => u.id === f.owner_id)?.name || '', folder_name: state.folders.find(d => d.id === f.folder_id)?.name || '' })).sort((a, b) => b.created_at - a.created_at) };
+      const fileShareRoute = /^\/api\/files\/([^/]+)\/shares(?:\/([^/]+))?$/.exec(path);
+      if (fileShareRoute) {
+        const [, fileId, viewerId] = fileShareRoute;
+        const file = state.files.find(f => f.id === fileId);
+        if (!file || file.owner_id !== user.id) throw fail(403, 'صاحب الملف وحده يستطيع إدارة مشاركته.');
+        state.fileShares ||= [];
+        if (method === 'GET' && !viewerId) return {
+          file: { id: file.id, name: file.name }, sharingEnabled: state.sharingEnabled,
+          users: state.users.filter(u => u.id !== user.id).map(userView),
+          viewerIds: state.fileShares.filter(s => s.fileId === fileId).map(s => s.viewerId),
+          allFilesViewerIds: state.shares.filter(s => s.ownerId === user.id).map(s => s.viewerId)
+        };
+        if (method === 'POST' && !viewerId) {
+          if (!state.sharingEnabled) throw fail(403, 'المشاركة مغلقة حاليًا بقرار مسؤول النظام.');
+          if (data.viewerId === user.id || !state.users.some(u => u.id === data.viewerId)) throw fail(400, 'اختر مستخدمًا آخر.');
+          if (!state.fileShares.some(s => s.fileId === fileId && s.viewerId === data.viewerId)) state.fileShares.push({ fileId, viewerId: data.viewerId });
+          await save(state); return { ok: true };
+        }
+        if (method === 'DELETE' && viewerId) {
+          state.fileShares = state.fileShares.filter(s => !(s.fileId === fileId && s.viewerId === viewerId));
+          await save(state); return { ok: true };
+        }
+        throw fail(404, 'عملية المشاركة غير متاحة.');
+      }
       if (path.startsWith('/api/files/')) {
         const file = state.files.find(f => f.id === path.split('/')[3]);
         if (!file || !canRead(state, user.id, file)) throw fail(404, 'الملف غير موجود أو ليس لديك إذن الاطلاع.');
@@ -161,7 +195,7 @@
           validateFilename(data.name); if (!state.folders.some(f => f.id === data.folderId)) throw fail(400, 'اختر مجلدًا صحيحًا.');
           file.name = data.name; file.folder_id = data.folderId; await save(state); return { ok: true };
         }
-        if (method === 'DELETE') { state.files = state.files.filter(f => f.id !== file.id); await save(state, { remove: file.id }); return { ok: true }; }
+        if (method === 'DELETE') { state.files = state.files.filter(f => f.id !== file.id); state.fileShares = (state.fileShares || []).filter(s => s.fileId !== file.id); await save(state, { remove: file.id }); return { ok: true }; }
       }
       throw fail(404, 'هذه العملية غير متاحة. حذف الحسابات غير مسموح.');
     });

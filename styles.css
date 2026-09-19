@@ -8,3 +8,22 @@
 /* Demonstration labels and sample accounts. */
 .demo-banner{display:flex;gap:12px;justify-content:center;align-items:center;padding:10px 20px;background:#fff6d5;border-bottom:1px solid #e5d392;color:#65521c;font-size:.875rem;flex-wrap:wrap}.demo-banner strong{white-space:nowrap}.demo-accounts{margin-top:22px;border:1px solid var(--line);border-radius:8px;overflow:hidden}.demo-accounts summary{padding:11px 14px;cursor:pointer;color:var(--blue-dark);font-size:.875rem;font-weight:700}.demo-accounts th,.demo-accounts td{font-size:.8125rem;padding:8px;text-align:center;min-width:0;max-width:none}.demo-accounts code{direction:ltr;display:inline-block;user-select:all;font-family:Consolas,monospace;font-size:.875rem}.demo-accounts tr:last-child td{border:0}.demo-accounts th{border-top:1px solid var(--line)}.login-panel{padding-top:26px;padding-bottom:26px}.login-brand{margin-bottom:20px}.login-intro{margin-bottom:17px}.login-footer{margin-top:24px}.login-help{margin-top:14px}.download{background:transparent;border:0;font-weight:400}.download:hover{background:var(--soft)}
 @media(max-width:780px){.demo-banner{font-size:.8125rem;gap:3px;text-align:center;display:block}.demo-banner strong{display:block}.login-screen{padding:18px 12px}.login-panel{padding:25px 22px}}
+
+/* Logo first, followed by a calm reveal without resizing the form. */
+.login-brand{width:200px;height:105px;margin-inline:auto;margin-bottom:26px;animation:login-logo-reveal 750ms cubic-bezier(.22,1,.36,1) both}
+.login-fields{animation:login-fields-reveal 800ms cubic-bezier(.22,1,.36,1) 850ms both}
+.login-footer{animation:login-fields-reveal 800ms ease 1050ms both}
+@keyframes login-logo-reveal{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes login-fields-reveal{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.primary,.quiet,.nav-item,.share-file-button{transition:background-color 180ms ease,border-color 180ms ease,color 180ms ease}
+.share-file-button{background:#e8f5fa;color:var(--blue-dark);border:1px solid #c2e1eb;padding:6px 11px;font-size:.875rem;white-space:nowrap}
+.share-file-button:hover{background:#d7edf5}
+#file-share-dialog{width:min(600px,calc(100% - 32px))}
+#file-share-dialog .notice{margin-top:18px}
+#file-share-dialog .inline-form{margin-block:20px}
+#file-share-dialog .list-item{flex-wrap:wrap;gap:12px}
+#file-share-dialog .list-item>div{flex:1;min-width:150px}
+.shared-file-name{font-weight:700;overflow-wrap:anywhere;background:var(--soft);padding:10px 14px;border-radius:8px;margin-bottom:10px}
+#file-share-dialog[open]{animation:dialog-reveal 220ms ease-out both}
+@keyframes dialog-reveal{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.login-brand,.login-fields,.login-footer,#file-share-dialog[open]{animation:none;transform:none;opacity:1}.primary,.quiet,.nav-item,.share-file-button{transition:none}}
