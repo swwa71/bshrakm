@@ -4,8 +4,12 @@ let currentUser = null, folders = [], files = [], users = [], sharedUsers = [];
 let sharingEnabled = true, lastActivity = 0, idleMs = 900000, activityPending = false, heartbeatBusy = false;
 let activeUpload = null, currentView = 'files', lastHeartbeat = 0;
 let loginIntroSequence = 0;
-let loginIntroAnimations = [];
+let loginIntroTimer;
 let loginArtworkReady;
+let maxFileSize = 1024 ** 3, auditEntries = [], pendingBackup = null;
+const permissionLabels = { upload: 'رفع الملفات', download: 'تنزيل الملفات', rename: 'إعادة تسمية ملفاته', move: 'نقل ملفاته', delete: 'حذف ملفاته إلى السلة', share: 'مشاركة ملفاته' };
+const can = permission => currentUser?.role === 'admin' || !!currentUser?.permissions?.[permission];
+const dateTime = new Intl.DateTimeFormat('ar-SA', { calendar: 'gregory', dateStyle: 'medium', timeStyle: 'short' });
 // Each tab has its own demo login so different accounts can be compared.
 const channel = null;
 const arabicDate = new Intl.DateTimeFormat('ar-SA', { calendar: 'gregory', year: 'numeric', month: 'short', day: 'numeric' });
@@ -17,15 +21,22 @@ function notice(message, isError = false) { const el = $('#notice'); el.textCont
 function showError(error) { if (currentUser) notice(error.message || 'تعذّر إكمال العملية.', true); }
 function cancelLoginIntro() {
   loginIntroSequence++;
-  loginIntroAnimations.forEach(animation => animation.cancel());
-  loginIntroAnimations = [];
+  clearTimeout(loginIntroTimer);
 }
 function completeLoginIntro(sequence) {
   if (sequence !== loginIntroSequence || currentUser || $('#login-screen').hidden) return;
   $('#login-screen').dataset.introState = 'ready';
   $('.login-fields').inert = false;
-  loginIntroAnimations.forEach(animation => animation.cancel());
-  loginIntroAnimations = [];
+  clearTimeout(loginIntroTimer);
+}
+function positionLoginIntro() {
+  const screen = $('#login-screen');
+  if (screen.hidden || !['preparing', 'running'].includes(screen.dataset.introState)) return;
+  // Measure the stationary slot so a resize cannot measure the moving logo.
+  const box = $('.login-brand-slot').getBoundingClientRect();
+  screen.style.setProperty('--intro-x', `${window.innerWidth / 2 - box.left - box.width / 2}px`);
+  screen.style.setProperty('--intro-y', `${window.innerHeight / 2 - box.top - box.height / 2}px`);
+  screen.style.setProperty('--intro-scale', Math.max(1, Math.min(1.35, (window.innerWidth - 40) / box.width)));
 }
 function prepareLoginArtwork() {
   if (!loginArtworkReady) {
@@ -41,45 +52,21 @@ function prepareLoginArtwork() {
 }
 async function revealLoginControls() {
   const screen = $('#login-screen');
-  if (screen.hidden || ['running', 'ready'].includes(screen.dataset.introState)) return;
+  if (screen.hidden || ['preparing', 'running', 'ready'].includes(screen.dataset.introState)) return;
   cancelLoginIntro();
   const sequence = loginIntroSequence;
-  screen.dataset.introState = 'running';
-  const logo = $('.login-brand'), fields = $('.login-fields'), footer = $('.login-footer');
-  fields.inert = true;
+  screen.dataset.introState = 'preparing';
+  $('.login-fields').inert = true;
   await prepareLoginArtwork();
-  if (sequence !== loginIntroSequence || currentUser || screen.hidden || screen.dataset.introState !== 'running') return;
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches || typeof logo.animate !== 'function') { completeLoginIntro(sequence); return; }
-  // Start at the actual viewport center, then move the same logo to its final place.
-  const box = logo.getBoundingClientRect();
-  const x = window.innerWidth / 2 - (box.left + box.width / 2);
-  const y = window.innerHeight / 2 - (box.top + box.height / 2);
-  const scale = Math.max(1, Math.min(1.35, (window.innerWidth - 40) / box.width));
-  const centered = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
-  const easing = 'cubic-bezier(.4, 0, .2, 1)';
-  try {
-    loginIntroAnimations = [
-      logo.animate([
-        { opacity: 0, transform: centered, offset: 0 },
-        { opacity: 1, transform: centered, offset: .15 },
-        { opacity: 1, transform: centered, offset: .4, easing },
-        { opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)', offset: 1 }
-      ], { duration: 1650, fill: 'both' }),
-      fields.animate([
-        { opacity: 0, transform: 'translateY(12px)' },
-        { opacity: 1, transform: 'translateY(0)' }
-      ], { duration: 650, delay: 1650, easing: 'cubic-bezier(.22, 1, .36, 1)', fill: 'both' }),
-      footer.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, delay: 1800, fill: 'both' })
-    ];
-    await Promise.all(loginIntroAnimations.map(animation => animation.finished));
-    completeLoginIntro(sequence);
-  } catch {
-    completeLoginIntro(sequence);
-  }
+  if (sequence !== loginIntroSequence || currentUser || screen.hidden || screen.dataset.introState !== 'preparing') return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { completeLoginIntro(sequence); return; }
+  positionLoginIntro();
+  screen.dataset.introState = 'running';
+  // CSS runs a 2.6s logo sequence, followed by a 0.65s form reveal.
+  // Keep the timing independent of Animation.finished and viewport resize events.
+  loginIntroTimer = setTimeout(() => completeLoginIntro(sequence), 3350);
 }
-window.addEventListener('resize', () => {
-  if ($('#login-screen').dataset.introState === 'running') completeLoginIntro(loginIntroSequence);
-});
+window.addEventListener('resize', positionLoginIntro, { passive: true });
 // Only transform and opacity animate; the form stays hidden and inert until the end.
 void revealLoginControls();
 
@@ -100,7 +87,8 @@ function showLogin(message = '') {
   if (returningToLogin) $('#login-screen').dataset.introState = 'idle';
   $('#login-error').textContent = message; $('#notice').hidden = true;
   for (const id of ['files-body','users-body','shares-list','folders-list']) $('#' + id).replaceChildren();
-  $('#user-password').value = ''; $('#upload-file').value = ''; revealLoginControls();
+  $('#user-password').value = ''; $('#upload-file').value = ''; pendingBackup = null;
+  $('#password-form').reset(); $('#backup-file').value = ''; revealLoginControls();
 }
 async function logout(message = '', broadcast = true) {
   activeUpload?.abort();
@@ -123,10 +111,13 @@ function activity(event) {
   if (Date.now() - lastHeartbeat > 30000) void heartbeat();
 }
 for (const type of ['pointerdown','pointermove','keydown','input','wheel','touchstart']) document.addEventListener(type, activity, { passive: true });
-setInterval(() => {
+setInterval(async () => {
   if (!currentUser) return;
   if (Date.now() - lastActivity >= idleMs) void logout('انتهت الجلسة بعد ١٥ دقيقة من عدم النشاط. سجّل الدخول مجددًا.');
-  else void heartbeat();
+  else {
+    void heartbeat();
+    try { await api('/api/me'); } catch (error) { showError(error); }
+  }
 }, 5000);
 if (channel) channel.onmessage = event => {
   if (event.data.type === 'logout') showLogin(event.data.message || 'تم تسجيل الخروج.');
@@ -134,7 +125,7 @@ if (channel) channel.onmessage = event => {
 };
 document.addEventListener('visibilitychange', async () => {
   if (document.hidden || !currentUser) return;
-  try { const data = await api('/api/me'); lastActivity = Math.max(lastActivity, data.lastActive); sharingEnabled = data.sharingEnabled; if (currentView === 'files') await loadFiles(); else if (currentView === 'shares') await loadShares(); else await loadAdmin(); }
+  try { const data = await api('/api/me'); lastActivity = Math.max(lastActivity, data.lastActive); sharingEnabled = data.sharingEnabled; await showView(currentView, false); }
   catch (e) { showError(e); }
 });
 
@@ -148,19 +139,36 @@ function fillFolders(select, placeholder, preserve = true) {
 async function loadFolders() {
   folders = (await api('/api/folders')).folders;
   fillFolders($('#upload-folder'), 'اختر مجلدًا'); fillFolders($('#file-folder'), 'جميع المجلدات'); fillFolders($('#edit-file-folder'), null);
+  renderFolderCards();
   updateUpload();
 }
 function updateUpload() {
   const selected = !!$('#upload-folder').value;
-  $('#upload-file').disabled = !selected || !!activeUpload;
-  $('#upload-button').disabled = !selected || !$('#upload-file').files.length || !!activeUpload;
+  $('#upload-file').disabled = !selected || !!activeUpload || !can('upload');
+  $('#upload-button').disabled = !selected || !$('#upload-file').files.length || !!activeUpload || !can('upload');
   $('#upload-folder').disabled = !!activeUpload;
-  $('#file-hint').textContent = selected ? 'حد الملف ١ جيجابايت، حسب المساحة المتاحة في المتصفح.' : 'حدد المجلد لتتمكن من اختيار الملف.';
+  $('#file-hint').textContent = !can('upload') ? 'صلاحية رفع الملفات غير مفعلة لحسابك.' : selected ? `حد الملف ${sizeLabel(maxFileSize)}، حسب المساحة المتاحة.` : 'حدد المجلد لتتمكن من اختيار الملف.';
 }
-async function loadFiles() { const data = await api('/api/files'); files = data.files; sharingEnabled = data.sharingEnabled; renderFiles(); }
+async function loadFiles() {
+  const [data, me] = await Promise.all([api('/api/files'), api('/api/me')]);
+  files = data.files; sharingEnabled = data.sharingEnabled; currentUser = me.user; maxFileSize = me.maxFileSize;
+  $('#upload-limit').textContent = `حد الملف: ${sizeLabel(maxFileSize)}`;
+  $('#upload-file').accept = me.extensions.map(e => '.' + e).join(',');
+  $('#storage-summary').textContent = `المستخدم ${sizeLabel(currentUser.usedBytes)} من ${sizeLabel(currentUser.quotaBytes)} · المتبقي ${sizeLabel(Math.max(0, currentUser.quotaBytes - currentUser.usedBytes))}`;
+  $('#storage-progress').value = currentUser.quotaBytes ? Math.min(100, currentUser.usedBytes / currentUser.quotaBytes * 100) : 100;
+  updateUpload(); renderFiles();
+}
+function renderFolderCards() {
+  const list = $('#folder-cards'); list.replaceChildren();
+  for (const folder of folders) {
+    const button = action('', () => { $('#file-folder').value = folder.id; $('#upload-folder').value = folder.id; updateUpload(); renderFolderCards(); renderFiles(); }, 'folder-card');
+    button.append(node('span', '▱'), node('strong', folder.name)); button.setAttribute('aria-pressed', String($('#file-folder').value === folder.id)); list.append(button);
+  }
+  if (!folders.length) list.append(node('p', 'لم يخصص المسؤول أي مجلد لحسابك بعد.', 'muted'));
+}
 function renderFiles() {
-  const scope = $('#file-scope').value, folder = $('#file-folder').value;
-  const visible = files.filter(f => (scope === 'own' ? f.owner_id === currentUser.id : f.owner_id !== currentUser.id) && (!folder || f.folder_id === folder));
+  const scope = $('#file-scope').value, folder = $('#file-folder').value, search = $('#file-search').value.trim().normalize('NFKC').toLocaleLowerCase();
+  const visible = files.filter(f => (scope === 'all' || (scope === 'own' ? f.owner_id === currentUser.id : f.owner_id !== currentUser.id)) && (!folder || f.folder_id === folder) && (!search || `${f.name} ${f.owner_name} ${f.folder_name}`.normalize('NFKC').toLocaleLowerCase().includes(search)));
   const body = $('#files-body'); body.replaceChildren();
   $('#file-count').textContent = `${formatNumber(visible.length)} ملف`;
   $('#files-empty').hidden = visible.length > 0;
@@ -178,22 +186,26 @@ function renderFiles() {
       document.body.append(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 30000);
     }, 'download');
-    download.setAttribute('aria-label',`تنزيل ${f.name}`); actions.append(download);
-    if (f.owner_id === currentUser.id) {
-      actions.append(action('مشاركة',()=>openFileShare(f),'share-file-button'),action('تعديل',()=>openFile(f)),action('حذف',()=>deleteFile(f),'text-button delete'));
+    download.setAttribute('aria-label',`تنزيل ${f.name}`); if (can('download')) actions.append(download);
+    if (f.owner_id === currentUser.id || currentUser.role === 'admin') {
+      if (f.owner_id === currentUser.id) actions.append(action('مشاركة',()=>openFileShare(f),'share-file-button'));
+      if (can('rename') || can('move')) actions.append(action('تعديل',()=>openFile(f)));
+      if (can('delete')) actions.append(action('حذف',()=>deleteFile(f),'text-button delete'));
     } else actions.append(node('span','اطلاع فقط','muted'));
     controls.append(actions); row.append(controls); body.append(row);
   }
 }
 async function showView(view, focus = true) {
-  if (!currentUser || (view === 'admin' && currentUser.role !== 'admin')) return;
+  if (!currentUser || !['files','shares','admin','trash','audit'].includes(view) || (['admin','trash','audit'].includes(view) && currentUser.role !== 'admin')) return;
   currentView = view; $('#notice').hidden = true;
-  for (const name of ['files','shares','admin']) $('#' + name + '-view').hidden = name !== view;
+  for (const name of ['files','shares','admin','trash','audit']) $('#' + name + '-view').hidden = name !== view;
   $$('.nav-item').forEach(b => { const active = b.dataset.view === view; b.classList.toggle('active',active); if (active) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
   if (focus) $('#main-content').focus({ preventScroll: true });
   if (view === 'files') { await loadFolders(); await loadFiles(); }
   else if (view === 'shares') await loadShares();
-  else await loadAdmin();
+  else if (view === 'admin') await loadAdmin();
+  else if (view === 'trash') await loadTrash();
+  else await loadAudit();
 }
 async function enterPortal(data) {
   cancelLoginIntro();
@@ -202,7 +214,8 @@ async function enterPortal(data) {
   $('#account-role').textContent = currentUser.role === 'admin' ? 'مسؤول نظام' : 'مستخدم عادي';
   $$('.admin-only').forEach(el => el.hidden = currentUser.role !== 'admin');
   $('#login-screen').hidden = true; $('#portal').hidden = false; $('#login-password').value = '';
-  $('#file-scope').value = 'own'; $('#file-folder').value = ''; $('#upload-folder').value = '';
+  $('#all-files-option').hidden = currentUser.role !== 'admin';
+  $('#file-scope').value = currentUser.role === 'admin' ? 'all' : 'own'; $('#file-folder').value = ''; $('#upload-folder').value = ''; $('#file-search').value = ''; $('#audit-search').value = '';
   await showView('files',false);
 }
 $('#login-form').addEventListener('submit',async event => {
@@ -214,13 +227,15 @@ $('#login-form').addEventListener('submit',async event => {
 $('#logout').addEventListener('click',()=>void logout());
 $$('.nav-item').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view).catch(showError)));
 $('#upload-folder').addEventListener('change',updateUpload); $('#upload-file').addEventListener('change',updateUpload);
-$('#file-scope').addEventListener('change',()=>loadFiles().catch(showError)); $('#file-folder').addEventListener('change',renderFiles);
+$('#file-scope').addEventListener('change',()=>loadFiles().catch(showError)); $('#file-folder').addEventListener('change',()=>{renderFiles();renderFolderCards();});
+$('#file-search').addEventListener('input', renderFiles);
+$('#clear-folder').addEventListener('click',()=>{$('#file-folder').value='';renderFolderCards();renderFiles();});
 $('#refresh-files').addEventListener('click',()=>loadFiles().catch(showError));
 $('#cancel-upload').addEventListener('click',()=>activeUpload?.abort());
 $('#upload-form').addEventListener('submit',async event=>{
   event.preventDefault(); const file = $('#upload-file').files[0], folder = $('#upload-folder').value;
   if (!folder || !file) return notice('اختر المجلد والملف أولًا.',true);
-  if (file.size > 1024 ** 3) return notice('الحد الأقصى للملف الواحد ١ جيجابايت.',true);
+  if (file.size > maxFileSize) return notice(`الحد الأقصى للملف الواحد ${sizeLabel(maxFileSize)}.`,true);
   const controller = new AbortController(); activeUpload = controller; updateUpload();
   $('#upload-progress-wrap').hidden = false; $('#upload-progress').removeAttribute('value'); $('#upload-status').textContent = 'جارٍ حفظ الملف في هذا المتصفح…';
   try {
@@ -233,7 +248,7 @@ $('#upload-form').addEventListener('submit',async event=>{
   } finally { activeUpload = null; $('#upload-progress-wrap').hidden = true; updateUpload(); }
 });
 
-function openFile(f) { $('#edit-file-id').value=f.id;$('#edit-file-name').value=f.name;fillFolders($('#edit-file-folder'),null);$('#edit-file-folder').value=f.folder_id;$('#file-error').textContent='';$('#file-dialog').showModal(); }
+function openFile(f) { $('#edit-file-id').value=f.id;$('#edit-file-name').value=f.name;$('#edit-file-name').disabled=!can('rename');fillFolders($('#edit-file-folder'),null);$('#edit-file-folder').value=f.folder_id;$('#edit-file-folder').disabled=!can('move');$('#file-error').textContent='';$('#file-dialog').showModal(); }
 async function openFileShare(file) {
   $('#share-file-id').value = file.id;
   $('#file-share-error').textContent = '';
@@ -244,11 +259,11 @@ async function loadFileShare(fileId) {
   const data = await api(`/api/files/${fileId}/shares`);
   $('#file-share-name').textContent = data.file.name;
   const message = $('#file-share-state');
-  message.textContent = data.sharingEnabled ? 'هذا الإذن يخص الملف المحدد فقط.' : 'أغلق مسؤول النظام المشاركة حاليًا. يمكنك إلغاء الأذونات المحفوظة.';
+  message.textContent = data.sharingEnabled ? 'هذا الإذن يخص الملف المحدد. يجب أن يكون مجلده مصرحًا للمستلم.' : 'المشاركة غير متاحة لحسابك حاليًا. يمكنك إلغاء الأذونات المحفوظة.';
   message.className = data.sharingEnabled ? 'notice' : 'notice warning';
   const select = $('#file-share-user'); select.replaceChildren();
   const placeholder = node('option', 'اختر مستخدمًا'); placeholder.value = ''; select.append(placeholder);
-  for (const u of data.users.filter(u => !data.viewerIds.includes(u.id) && !data.allFilesViewerIds.includes(u.id))) {
+  for (const u of data.users.filter(u => u.eligible && !data.viewerIds.includes(u.id) && !data.allFilesViewerIds.includes(u.id))) {
     const option = node('option', `${u.name} (${u.username})`); option.value = u.id; select.append(option);
   }
   select.disabled = !data.sharingEnabled;
@@ -291,13 +306,13 @@ async function deleteFile(file) {
   const dialog=$('#confirm-dialog'); $('#confirm-message').textContent=`هل تريد حذف «${file.name}»؟`; dialog.returnValue=''; dialog.showModal();
   const result = await new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true}));
   if(result!=='confirm')return;
-  await api(`/api/files/${file.id}`,{method:'DELETE'}); await loadFiles(); notice('تم حذف الملف.');
+  await api(`/api/files/${file.id}`,{method:'DELETE'}); await loadFiles(); notice('نُقل الملف إلى سلة المحذوفات. يستطيع مسؤول النظام استعادته.');
 }
 $('#file-edit-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api(`/api/files/${$('#edit-file-id').value}`,{method:'PATCH',data:{name:$('#edit-file-name').value,folderId:$('#edit-file-folder').value}});$('#file-dialog').close();await loadFiles();notice('تم حفظ تعديلات الملف.');}catch(e){$('#file-error').textContent=e.message;}finally{event.submitter.disabled=false;}});
 
 async function loadShares() {
   const data=await api('/api/shares'); sharingEnabled=data.sharingEnabled;sharedUsers=data.users;
-  $('#sharing-state').textContent=sharingEnabled?'المشاركة متاحة. يمكنك منح أذونات الاطلاع أو إلغاؤها.':'المشاركة مغلقة حاليًا من مسؤول النظام. لا يستطيع الآخرون الاطلاع على ملفاتك، ويمكنك إلغاء الأذونات المحفوظة.';
+  $('#sharing-state').textContent=sharingEnabled?'المشاركة متاحة ضمن المجلدات المسموحة للمستلم. يمكنك منح الأذونات أو إلغاؤها.':'إنشاء المشاركة غير متاح لحسابك حاليًا. يمكنك إلغاء الأذونات المحفوظة.';
   $('#sharing-state').className=sharingEnabled?'notice':'notice warning';
   const select=$('#share-user');select.replaceChildren();const placeholder=node('option','اختر مستخدمًا');placeholder.value='';select.append(placeholder);
   for(const u of data.users.filter(u=>!data.viewerIds.includes(u.id))){const o=node('option',`${u.name} (${u.username})`);o.value=u.id;select.append(o);}
@@ -308,16 +323,32 @@ async function loadShares() {
 $('#share-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api('/api/shares',{method:'POST',data:{viewerId:$('#share-user').value}});await loadShares();notice('تم منح إذن الاطلاع.');}catch(e){showError(e);await loadShares().catch(()=>{});}finally{if(sharingEnabled&&$('#share-user').options.length>1)event.submitter.disabled=false;}});
 
 async function loadAdmin() {
-  const [data,me]=await Promise.all([api('/api/users'),api('/api/me')]); users=data.users;sharingEnabled=me.sharingEnabled;await loadFolders();
+  const [data,settings,stats]=await Promise.all([api('/api/users'),api('/api/settings'),api('/api/dashboard')]); users=data.users;sharingEnabled=settings.sharingEnabled;await loadFolders();
+  $('#setting-max-mb').value = settings.maxFileSize / 1024 ** 2; $('#setting-extensions').value = settings.extensions.join(', ');
+  const statCards = $('#admin-stats'); statCards.replaceChildren();
+  for (const [value,label] of [[formatNumber(stats.users),`مستخدم · ${formatNumber(stats.activeUsers)} مفعّل`],[formatNumber(stats.files),'ملف حالي'],[sizeLabel(stats.bytes),'مساحة الملفات والسلة'],[formatNumber(stats.trash),'ملف في السلة']]) { const card=node('div',undefined,'stat-card');card.append(node('strong',value),node('span',label));statCards.append(card); }
   const toggle=$('#toggle-sharing');toggle.setAttribute('aria-checked',String(sharingEnabled));toggle.textContent=sharingEnabled?'المشاركة مفتوحة · إغلاق':'المشاركة مغلقة · فتح';
   const body=$('#users-body');body.replaceChildren();
-  for(const u of users){const row=node('tr');row.append(node('td',u.name),node('td',u.username));const role=node('td');role.append(node('span',u.role==='admin'?'مسؤول نظام':'مستخدم عادي','role-badge'));const edit=node('td');edit.append(action('تعديل المستخدم',()=>openUser(u)));row.append(role,edit);body.append(row);}
+  for(const u of users){
+    const row=node('tr');row.append(node('td',u.name),node('td',u.username));const role=node('td');
+    role.append(node('span',u.role==='admin'?'مسؤول نظام':'مستخدم عادي','role-badge'),node('span',!u.active?'موقوف':u.lockedUntil>Date.now()?'مقفل مؤقتًا':'مفعّل',!u.active||u.lockedUntil>Date.now()?'status-off':'status-on'));
+    const edit=node('td'),actions=node('div',undefined,'admin-user-actions');
+    actions.append(action('تعديل',()=>openUser(u)),action(u.active?'إيقاف الحساب':'تفعيل الحساب',async()=>{const result=await api(`/api/users/${u.id}`,{method:'PATCH',data:{...u,active:!u.active}});if(result.relogin)return logout('تم إيقاف حسابك.');await loadAdmin();notice(u.active?'تم إيقاف الحساب وإنهاء جلساته.':'تم تفعيل الحساب.');}),action('إنهاء الجلسات',async()=>{const result=await api(`/api/users/${u.id}/sessions`,{method:'POST'});if(result.relogin)return logout('تم إنهاء جلساتك.');await loadAdmin();notice('تم إنهاء جلسات المستخدم في هذه النسخة.');}));
+    if(u.lockedUntil>Date.now())actions.append(action('فك القفل',async()=>{await api(`/api/users/${u.id}/unlock`,{method:'POST'});await loadAdmin();notice('تم فك القفل المؤقت.');}));
+    edit.append(actions);row.append(role,node('td',`${sizeLabel(u.usedBytes)} / ${sizeLabel(u.quotaBytes)}`),edit);body.append(row);
+  }
   const list=$('#folders-list');list.replaceChildren();for(const f of folders){const item=node('div',undefined,'list-item');item.append(node('strong',f.name),action('تغيير الاسم',()=>{$('#edit-folder-id').value=f.id;$('#edit-folder-name').value=f.name;$('#folder-error').textContent='';$('#folder-dialog').showModal();},'quiet'));list.append(item);}
 }
 function openUser(user) {
   $('#user-form').reset();$('#edit-user-id').value=user?.id||'';$('#user-name').value=user?.name||'';$('#user-username').value=user?.username||'';$('#user-role').value=user?.role||'user';
   $('#user-password').required=!user;$('#user-dialog-title').textContent=user?'تعديل بيانات المستخدم':'إنشاء مستخدم';
   $('#password-hint').textContent=user?'اتركها فارغة للإبقاء عليها، أو أدخل كلمة جديدة من ٤ إلى ٢٠ خانة.':'من ٤ إلى ٢٠ خانة، دون اشتراط نوع معين.';
+  $('#user-active').checked=user?.active??true;$('#user-quota-gb').value=(user?.quotaBytes??2*1024**3)/1024**3;$('#user-all-folders').checked=user?.allFolders??true;
+  const options=$('#permission-options');options.replaceChildren();
+  for(const [key,label] of Object.entries(permissionLabels)){const wrap=node('label',undefined,'check-label'),input=node('input');input.type='checkbox';input.dataset.permission=key;input.checked=user?.permissions?.[key]??true;wrap.append(input,document.createTextNode(label));options.append(wrap);}
+  const folderOptions=$('#user-folder-options');folderOptions.replaceChildren();
+  for(const f of folders){const wrap=node('label',undefined,'check-label'),input=node('input');input.type='checkbox';input.value=f.id;input.checked=user?.folderIds?.includes(f.id)??false;wrap.append(input,document.createTextNode(f.name));folderOptions.append(wrap);}
+  updateAccessFields();
   $('#user-error').textContent='';$('#user-dialog').showModal();
 }
 $('#new-user').addEventListener('click',()=>openUser());
@@ -325,14 +356,53 @@ $('#user-form').addEventListener('submit',async event=>{
   event.preventDefault();const id=$('#edit-user-id').value;const password=$('#user-password').value;
   if((!id||password!=='')&&([...password].length<4||[...password].length>20)){$('#user-error').textContent='كلمة المرور يجب أن تكون من ٤ إلى ٢٠ خانة.';return;}
   event.submitter.disabled=true;
-  try{const result=await api(id?`/api/users/${id}`:'/api/users',{method:id?'PATCH':'POST',data:{name:$('#user-name').value,username:$('#user-username').value,password,role:$('#user-role').value}});$('#user-dialog').close();$('#user-password').value='';if(result.relogin){await logout('تم تعديل بيانات دخولك. سجّل الدخول بالبيانات الجديدة.');return;}if(id===currentUser.id){currentUser=result.user;$('#account-name').textContent=currentUser.name;}await loadAdmin();notice(id?'تم تحديث بيانات المستخدم.':'تم إنشاء المستخدم.');}
+  try{const result=await api(id?`/api/users/${id}`:'/api/users',{method:id?'PATCH':'POST',data:{name:$('#user-name').value,username:$('#user-username').value,password,role:$('#user-role').value,active:$('#user-active').checked,quotaBytes:Math.round(Number($('#user-quota-gb').value)*1024**3),allFolders:$('#user-all-folders').checked,folderIds:$$('#user-folder-options input:checked').map(el=>el.value),permissions:Object.fromEntries($$('#permission-options input').map(el=>[el.dataset.permission,el.checked]))}});$('#user-dialog').close();$('#user-password').value='';if(result.relogin){await logout('تم تعديل بيانات دخولك أو صلاحياتك. سجّل الدخول مجددًا.');return;}if(id===currentUser.id){currentUser=result.user;$('#account-name').textContent=currentUser.name;}await loadAdmin();notice(id?'تم تحديث المستخدم وصلاحياته.':'تم إنشاء المستخدم.');}
   catch(e){$('#user-error').textContent=e.message;}finally{event.submitter.disabled=false;}
 });
 $('#toggle-sharing').addEventListener('click',async event=>{event.currentTarget.disabled=true;try{await api('/api/settings',{method:'PATCH',data:{sharingEnabled:!sharingEnabled}});await loadAdmin();notice(sharingEnabled?'تم فتح المشاركة والاطلاع بين المستخدمين.':'تم إغلاق المشاركة والاطلاع بين المستخدمين.');}catch(e){showError(e);}finally{$('#toggle-sharing').disabled=false;}});
 $('#folder-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api('/api/folders',{method:'POST',data:{name:$('#folder-name').value}});$('#folder-name').value='';await loadAdmin();notice('تم إنشاء المجلد.');}catch(e){showError(e);}finally{event.submitter.disabled=false;}});
 $('#folder-edit-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api(`/api/folders/${$('#edit-folder-id').value}`,{method:'PATCH',data:{name:$('#edit-folder-name').value}});$('#folder-dialog').close();await loadAdmin();notice('تم تغيير اسم المجلد.');}catch(e){$('#folder-error').textContent=e.message;}finally{event.submitter.disabled=false;}});
+function updateAccessFields(){ $('#user-access-fields').disabled=$('#user-role').value==='admin';$('#user-folder-options').hidden=$('#user-all-folders').checked; }
+$('#user-role').addEventListener('change',updateAccessFields);$('#user-all-folders').addEventListener('change',updateAccessFields);
+$('#settings-form').addEventListener('submit',async event=>{
+  event.preventDefault();event.submitter.disabled=true;
+  try{const extensions=$('#setting-extensions').value.split(/[,،\s]+/).map(e=>e.replace(/^\./,'').toLowerCase()).filter(Boolean);await api('/api/settings',{method:'PATCH',data:{maxFileSize:Math.round(Number($('#setting-max-mb').value)*1024**2),extensions}});await loadAdmin();notice('تم حفظ حدود الملفات. تطبق على عمليات الرفع التالية.');}catch(e){showError(e);}finally{event.submitter.disabled=false;}
+});
+async function loadTrash(){
+  const data=await api('/api/trash'),body=$('#trash-body');body.replaceChildren();$('#trash-empty').hidden=data.files.length>0;
+  for(const file of data.files){const row=node('tr'),controls=node('td');row.append(node('td',file.name),node('td',file.owner_name),node('td',file.folder_name),node('td',sizeLabel(file.size)),node('td',dateTime.format(new Date(file.deleted_at))));controls.append(action('استعادة',async()=>{await api(`/api/files/${file.id}/restore`,{method:'POST'});await loadTrash();notice('تمت استعادة الملف إلى مجلده الأصلي.');},'quiet'));row.append(controls);body.append(row);}
+}
+async function loadAudit(){auditEntries=(await api('/api/audit')).entries;renderAudit();}
+function renderAudit(){
+  const query=$('#audit-search').value.trim().normalize('NFKC').toLocaleLowerCase(),body=$('#audit-body');body.replaceChildren();
+  const entries=auditEntries.filter(e=>!query||`${e.actor} ${e.action} ${e.target} ${e.details}`.normalize('NFKC').toLocaleLowerCase().includes(query));$('#audit-empty').hidden=entries.length>0;
+  for(const e of entries){const row=node('tr');row.append(node('td',dateTime.format(new Date(e.at))),node('td',e.actor),node('td',e.action),node('td',e.target||'—'),node('td',e.details||'—'));body.append(row);}
+}
+$('#refresh-trash').addEventListener('click',()=>loadTrash().catch(showError));$('#refresh-audit').addEventListener('click',()=>loadAudit().catch(showError));$('#audit-search').addEventListener('input',renderAudit);
+$('#change-password').addEventListener('click',()=>{$('#password-form').reset();$('#password-error').textContent='';$('#password-dialog').showModal();});
+$('#password-form').addEventListener('submit',async event=>{
+  event.preventDefault();const password=$('#new-password').value;
+  if(password!==$('#confirm-password').value){$('#password-error').textContent='تأكيد كلمة المرور غير مطابق.';return;}
+  event.submitter.disabled=true;try{await api('/api/password',{method:'POST',data:{currentPassword:$('#current-password').value,password}});$('#password-dialog').close();showLogin('تم تغيير كلمة المرور وإنهاء الجلسات. سجّل الدخول بكلمة المرور الجديدة.');}catch(e){$('#password-error').textContent=e.message;}finally{event.submitter.disabled=false;}
+});
+function downloadBlob(blob,name){const url=URL.createObjectURL(blob),link=node('a');link.href=url;link.download=name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
+$('#backup-export').addEventListener('click',async()=>{
+  const button=$('#backup-export');button.disabled=true;$('#backup-status').textContent='جارٍ تجهيز النسخة…';
+  try{downloadBlob(await window.DemoPortal.exportBackup(),`bushrakom-${new Date().toISOString().slice(0,10)}.bshbak`);$('#backup-status').textContent='تم تجهيز النسخة وتنزيلها.';}catch(e){if(e.status===401)showLogin(e.message);else $('#backup-status').textContent=e.message;}finally{button.disabled=false;}
+});
+$('#backup-file').addEventListener('change',()=>{pendingBackup=null;$('#backup-status').textContent='';});
+$('#backup-inspect').addEventListener('click',async()=>{
+  const file=$('#backup-file').files[0];if(!file){$('#backup-status').textContent='اختر ملف النسخة أولًا.';return;}$('#backup-inspect').disabled=true;$('#backup-status').textContent='جارٍ فحص النسخة…';
+  try{const info=await window.DemoPortal.inspectBackup(file);pendingBackup=file;$('#restore-summary').textContent=`تحتوي النسخة على ${formatNumber(info.users)} مستخدم و${formatNumber(info.files)} ملف، بمساحة ${sizeLabel(info.bytes)}.`;$('#restore-confirm').checked=false;$('#restore-error').textContent='';$('#restore-dialog').showModal();$('#backup-status').textContent='النسخة صالحة للاستعادة.';}catch(e){if(e.status===401)showLogin(e.message);else $('#backup-status').textContent=e.message;}finally{$('#backup-inspect').disabled=false;}
+});
+$('#restore-form').addEventListener('submit',async event=>{
+  event.preventDefault();if(!pendingBackup||!$('#restore-confirm').checked)return;event.submitter.disabled=true;
+  try{await window.DemoPortal.restoreBackup(pendingBackup);pendingBackup=null;$('#restore-dialog').close();showLogin('تمت استعادة النسخة. سجّل الدخول بأحد حساباتها.');}catch(e){if(e.status===401)showLogin(e.message);else $('#restore-error').textContent=e.message;}finally{event.submitter.disabled=false;}
+});
 $$('.close-dialog').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
 $('#user-dialog').addEventListener('close',()=>$('#user-password').value='');
+$('#password-dialog').addEventListener('close',()=>$('#password-form').reset());
+$('#restore-dialog').addEventListener('close',()=>{pendingBackup=null;});
 
 // Offline demonstration: all data is stored in this browser, with no server calls.
 (async()=>{
