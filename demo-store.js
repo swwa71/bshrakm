@@ -1,8 +1,10 @@
-/* Offline demonstration only. Browser-side roles are not a security boundary. */
+/* Demo accounts stay local; uploads also go to the configured server.
+   Browser-side roles are not a server security boundary. */
 (() => {
   'use strict';
   const DB_NAME = 'bushrakom-html-demo-v1', SESSION_KEY = 'bushrakom-html-session-v1';
   const IDLE_MS = 900000, MAX_FILE_SIZE = 1024 ** 3, LOCK_MS = 900000;
+  const UPLOAD_URL = 'http://192.168.91.133:3000/upload';
   const PERMISSIONS = ['upload', 'download', 'rename', 'move', 'delete', 'share'];
   const fail = (status, message) => Object.assign(new Error(message), { status });
   const id = () => crypto.randomUUID();
@@ -260,18 +262,60 @@
       throw fail(404, 'هذه العملية غير متاحة. حذف الحسابات غير مسموح.');
     });
   }
+  function validateUpload(state, file, folderId) {
+    const { user } = session(state); requirePermission(user, 'upload');
+    if (!state.folders.some(f => f.id === folderId)) throw fail(400, 'اختر مجلدًا قبل رفع الملف.');
+    if (!folderAllowed(user, folderId)) throw fail(403, 'المجلد غير مصرح لك به.');
+    if (!(file instanceof Blob)) throw fail(400, 'اختر ملفًا صحيحًا.');
+    if (file.size > state.settings.maxFileSize) throw fail(413, 'حجم الملف يتجاوز الحد الذي حدده المسؤول. الحد المطلق ١ جيجابايت.');
+    validateFilename(file.name); validateExtension(state, file.name);
+    if (usedBytes(state, user.id) + file.size > user.quotaBytes) throw fail(413, 'لا تكفي المساحة المخصصة لحسابك. تشمل المساحة الملفات الموجودة في السلة.');
+    return user;
+  }
   async function upload(file, folderId, signal) {
-    return lock(async () => {
-      const state = await read('state', 'portal'), { user } = session(state); requirePermission(user, 'upload');
-      if (!state.folders.some(f => f.id === folderId)) throw fail(400, 'اختر مجلدًا قبل رفع الملف.');
-      if (!folderAllowed(user, folderId)) throw fail(403, 'المجلد غير مصرح لك به.');
-      if (!(file instanceof Blob)) throw fail(400, 'اختر ملفًا صحيحًا.');
-      if (file.size > state.settings.maxFileSize) throw fail(413, 'حجم الملف يتجاوز الحد الذي حدده المسؤول. الحد المطلق ١ جيجابايت.');
-      validateFilename(file.name); validateExtension(state, file.name);
-      if (usedBytes(state, user.id) + file.size > user.quotaBytes) throw fail(413, 'لا تكفي المساحة المخصصة لحسابك. تشمل المساحة الملفات الموجودة في السلة.');
-      const entry = { id: id(), owner_id: user.id, folder_id: folderId, name: file.name, size: file.size, created_at: Date.now(), updated_at: Date.now(), deleted_at: null };
-      state.files.push(entry); audit(state, user, 'رفع ملف', file.name); await save(state, { id: entry.id, blob: file }, signal); return entry;
+    const canceled = () => fail(499, 'أُلغي طلب الرفع. إذا كان الإرسال قد بدأ فتحقق من السيرفر قبل إعادة المحاولة.');
+    if (signal?.aborted) throw canceled();
+    const ticket = await lock(async () => {
+      const user = validateUpload(await read('state', 'portal'), file, folderId);
+      return { userId: user.id, revision: user.revision };
     });
+    if (signal?.aborted) throw canceled();
+    const formData = new FormData();
+    formData.append('file', file, file.name);
+    let response;
+    // Do not hold the local database lock while transferring a large file.
+    // Heartbeats, logout and administrator actions must remain responsive.
+    try {
+      response = await fetch(UPLOAD_URL, { method: 'POST', body: formData, signal, mode: 'cors', credentials: 'omit', redirect: 'error' });
+    } catch (error) {
+      if (signal?.aborted || error.name === 'AbortError') throw canceled();
+      throw fail(502, 'تعذّر تأكيد الرفع. تحقق من اتصالك بشبكة السيرفر والسماح بالوصول للشبكة المحلية. قد يكون السبب إعدادات CORS أو HTTP/HTTPS. راجع السيرفر قبل إعادة المحاولة.');
+    }
+    if (!response.ok) throw fail(502, `لم يؤكد السيرفر الرفع (HTTP ${response.status}). تحقق من إعداداته وحجم الملف المسموح.`);
+    let receipt;
+    try { receipt = await response.json(); }
+    catch {
+      if (signal?.aborted) throw canceled();
+      throw fail(502, 'وصل رد ناجح من السيرفر، لكن صيغة الرد ليست JSON صالحًا. تحقق من وجود الملف في السيرفر قبل إعادة المحاولة.');
+    }
+    if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt) || receipt.success === false || receipt.ok === false || receipt.error) throw fail(502, 'لم يؤكد رد السيرفر نجاح الرفع. تحقق من وجود الملف قبل إعادة المحاولة.');
+    try {
+      return await lock(async () => {
+        if (signal?.aborted) throw canceled();
+        const state = await read('state', 'portal'), user = validateUpload(state, file, folderId);
+        if (user.id !== ticket.userId || user.revision !== ticket.revision) throw fail(401, 'تغيرت جلسة الدخول أثناء الرفع. سجّل الدخول مجددًا.');
+        const now = Date.now();
+        const entry = { id: id(), owner_id: user.id, folder_id: folderId, name: file.name, size: file.size, created_at: now, updated_at: now, deleted_at: null,
+          remote_uploaded_at: now, remote_filename: typeof receipt.fileName === 'string' ? receipt.fileName.slice(0, 500) : null };
+        state.files.push(entry); audit(state, user, 'رفع ملف', file.name, 'رُفع إلى السيرفر مع حفظ نسخة محلية للتجربة.');
+        await save(state, { id: entry.id, blob: file }, signal); return entry;
+      });
+    } catch (error) {
+      // A local save failure must not be reported as a remote upload failure.
+      error.serverUploaded = true;
+      error.message = `نجح رفع «${file.name}» إلى السيرفر، لكن لم تُحفظ نسخته في البوابة: ${error.message} لا تكرر الرفع لنفس الملف.`;
+      throw error;
+    }
   }
 
   // A binary container avoids converting large files to base64 strings.

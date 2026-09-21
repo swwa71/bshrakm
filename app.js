@@ -82,6 +82,7 @@ function showLogin(message = '') {
   const returningToLogin = $('#login-screen').hidden;
   currentUser = null; activityPending = false; folders = []; files = []; users = []; sharedUsers = [];
   activeUpload?.abort(); activeUpload = null;
+  $('#upload-progress-wrap').hidden = true;
   $$('dialog[open]').forEach(d => d.close());
   $('#portal').hidden = true; $('#login-screen').hidden = false; $('#login-password').value = '';
   if (returningToLogin) $('#login-screen').dataset.introState = 'idle';
@@ -233,19 +234,20 @@ $('#clear-folder').addEventListener('click',()=>{$('#file-folder').value='';rend
 $('#refresh-files').addEventListener('click',()=>loadFiles().catch(showError));
 $('#cancel-upload').addEventListener('click',()=>activeUpload?.abort());
 $('#upload-form').addEventListener('submit',async event=>{
-  event.preventDefault(); const file = $('#upload-file').files[0], folder = $('#upload-folder').value;
+  event.preventDefault(); if (activeUpload) return;
+  const file = $('#upload-file').files[0], folder = $('#upload-folder').value;
   if (!folder || !file) return notice('اختر المجلد والملف أولًا.',true);
   if (file.size > maxFileSize) return notice(`الحد الأقصى للملف الواحد ${sizeLabel(maxFileSize)}.`,true);
   const controller = new AbortController(); activeUpload = controller; updateUpload();
-  $('#upload-progress-wrap').hidden = false; $('#upload-progress').removeAttribute('value'); $('#upload-status').textContent = 'جارٍ حفظ الملف في هذا المتصفح…';
+  $('#upload-progress-wrap').hidden = false; $('#upload-progress').removeAttribute('value'); $('#upload-status').textContent = 'جارٍ رفع الملف إلى السيرفر…';
   try {
     await window.DemoPortal.upload(file, folder, controller.signal);
     if (!currentUser) return;
-    $('#upload-file').value = ''; notice(`تم حفظ «${file.name}» في هذا المتصفح.`); await loadFiles();
+    $('#upload-file').value = ''; notice(`تم رفع «${file.name}» إلى السيرفر وحفظ نسخة محلية لعرضه في البوابة.`); await loadFiles();
   } catch (error) {
     if (error.status === 401) showLogin(error.message);
     else if (currentUser) notice(error.message || 'تعذّر حفظ الملف في المتصفح.', error.status !== 499);
-  } finally { activeUpload = null; $('#upload-progress-wrap').hidden = true; updateUpload(); }
+  } finally { if (activeUpload === controller) { activeUpload = null; $('#upload-progress-wrap').hidden = true; updateUpload(); } }
 });
 
 function openFile(f) { $('#edit-file-id').value=f.id;$('#edit-file-name').value=f.name;$('#edit-file-name').disabled=!can('rename');fillFolders($('#edit-file-folder'),null);$('#edit-file-folder').value=f.folder_id;$('#edit-file-folder').disabled=!can('move');$('#file-error').textContent='';$('#file-dialog').showModal(); }
@@ -404,7 +406,7 @@ $('#user-dialog').addEventListener('close',()=>$('#user-password').value='');
 $('#password-dialog').addEventListener('close',()=>$('#password-form').reset());
 $('#restore-dialog').addEventListener('close',()=>{pendingBackup=null;});
 
-// Offline demonstration: all data is stored in this browser, with no server calls.
+// Demo accounts and permissions remain local; the upload operation also contacts the server.
 (async()=>{
   try { await enterPortal(await api('/api/me')); }
   catch(error) {

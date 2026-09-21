@@ -8,11 +8,11 @@
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preload" as="image" href="background.png">
   <link rel="stylesheet" href="styles.css?v=20260920-portal-v2">
-  <script src="demo-store.js?v=20260920-portal-v2" defer></script>
-  <script src="app.js?v=20260920-portal-v2" defer></script>
+  <script src="demo-store.js?v=20260922-server-upload" defer></script>
+  <script src="app.js?v=20260922-server-upload" defer></script>
 </head>
 <body>
-  <div class="demo-banner"><strong>نسخة تجريبية</strong><span>الحسابات والملفات محفوظة في هذا المتصفح فقط. استخدم بيانات وملفات تجريبية.</span></div>
+  <div class="demo-banner"><strong>نسخة تجريبية</strong><span>الملفات تُرفع إلى السيرفر مع نسخة محلية؛ الحسابات والصلاحيات ما زالت تجريبية داخل المتصفح.</span></div>
   <noscript><p class="notice error">فعّل JavaScript لتشغيل تجربة البوابة.</p></noscript>
   <section id="login-screen" class="login-screen" data-intro-state="idle">
     <div class="login-art" role="img" aria-label="شعار بشراكم، الجمعية الخيرية لتحفيظ القرآن الكريم بمنطقة الجوف"></div>
@@ -21,8 +21,8 @@
         <div class="login-brand-slot"><div class="brand login-brand" role="img" aria-label="شعار جمعية بشراكم"></div></div>
         <div class="login-fields" inert>
         <span class="eyebrow">بوابة الموظفين</span>
-        <h1>أهلاً نورت المنصة</h1>
-        <p class="muted login-intro"> سم بالله وسجل دخول</p>
+        <h1>مرحبًا بعودتك</h1>
+        <p class="muted login-intro">سجّل دخولك للوصول إلى ملفاتك ومجلداتك.</p>
         <form id="login-form">
           <label for="login-username">اسم المستخدم</label>
           <input id="login-username" name="username" autocomplete="username" maxlength="64" required>
@@ -31,7 +31,7 @@
           <p id="login-error" class="form-message error" role="alert"></p>
           <button type="submit" class="primary full">تسجيل الدخول <span aria-hidden="true">←</span></button>
         </form>
-        <details class="demo-accounts" open><summary>حسابات جاهزة للتجربة</summary><table><thead><tr><th>الصلاحية</th><th>اسم المستخدم</th><th>كلمة المرور</th></tr></thead><tbody><tr><td>مسؤول</td><td><code>admin</code></td><td><code>1234</code></td></tr><tr><td>مستخدم</td><td><code>1001</code></td><td><code>1234</code></td></tr><tr><td>مستخدم</td><td><code>ahmad</code></td><td><code>abcd</code></td></tr></tbody></table></details><p class="login-help">تعمل دون خادم أو اتصال بالإنترنت. الصلاحيات هنا محاكاة للتجربة وليست حماية للبيانات الحقيقية.</p>
+        <details class="demo-accounts" open><summary>حسابات جاهزة للتجربة</summary><table><thead><tr><th>الصلاحية</th><th>اسم المستخدم</th><th>كلمة المرور</th></tr></thead><tbody><tr><td>مسؤول</td><td><code>admin</code></td><td><code>1234</code></td></tr><tr><td>مستخدم</td><td><code>1001</code></td><td><code>1234</code></td></tr><tr><td>مستخدم</td><td><code>ahmad</code></td><td><code>abcd</code></td></tr></tbody></table></details><p class="login-help">رفع الملفات يتطلب الاتصال بشبكة السيرفر. الحسابات والصلاحيات هنا محاكاة محلية للتجربة.</p>
         </div>
       </div>
       <p class="login-footer">الجمعية الخيرية لتحفيظ القرآن الكريم بمنطقة الجوف</p>
@@ -59,7 +59,7 @@
         <div id="notice" class="notice" role="status" hidden></div>
         <section id="files-view">
           <div class="page-heading"><div><span class="eyebrow">مساحة الملفات</span><h1>ملفاتك، في مكان واحد</h1><p class="muted">جرّب رفع ملف إلى مجلد، ثم امنح حسابًا تجريبيًا آخر إذن الاطلاع.</p></div><span class="tag" id="upload-limit">حتى ١ جيجابايت</span></div>
-          <div class="storage-card" aria-labelledby="storage-title"><div><h2 id="storage-title">مساحتي التخزينية</h2><p id="storage-summary"></p><p class="field-hint">تشمل المساحة ملفاتك في سلة المحذوفات. الحفظ الفعلي حسب مساحة المتصفح.</p></div><progress id="storage-progress" max="100" value="0" aria-label="المساحة المستخدمة"></progress></div>
+          <div class="storage-card" aria-labelledby="storage-title"><div><h2 id="storage-title">مساحتي التخزينية</h2><p id="storage-summary"></p><p class="field-hint">تشمل المساحة ملفاتك في سلة المحذوفات. هذه مساحة النسخ المحلية، وليست مساحة السيرفر.</p></div><progress id="storage-progress" max="100" value="0" aria-label="المساحة المستخدمة"></progress></div>
           <div class="folder-heading"><h2>مجلداتي المسموحة</h2><button id="clear-folder" class="text-button">عرض جميع المجلدات</button></div><div id="folder-cards" class="folder-cards"></div>
           <section class="upload-panel" aria-labelledby="upload-title">
             <div class="section-title"><h2 id="upload-title">رفع ملف جديد</h2><span class="step-label">اختر المجلد أولًا</span></div>
@@ -88,7 +88,7 @@
           <section class="panel"><div class="section-title"><h2>حسابات المستخدمين</h2><span class="muted">تعديل الحسابات متاح، وحذفها غير متاح</span></div><div class="table-wrap"><table><thead><tr><th>الاسم</th><th>اسم المستخدم</th><th>الصلاحية والحالة</th><th>المساحة</th><th>الإجراءات</th></tr></thead><tbody id="users-body"></tbody></table></div></section>
           <section class="panel"><h2>مجلدات البوابة</h2><form id="folder-form" class="inline-form"><div class="grow"><label for="folder-name">اسم المجلد الجديد</label><input id="folder-name" maxlength="80" required></div><button class="primary">إضافة مجلد</button></form><div id="folders-list" class="item-list"></div></section>
           <section class="panel"><h2>حدود الملفات</h2><form id="settings-form" class="settings-grid"><div><label for="setting-max-mb">أقصى حجم للملف بالميجابايت</label><input id="setting-max-mb" type="number" min="0.0000009" max="1024" step="any" required><p class="field-hint">الحد الأعلى ١٠٢٤ ميجابايت = ١ جيجابايت.</p></div><div><label for="setting-extensions">الامتدادات المسموحة</label><input id="setting-extensions" dir="ltr" placeholder="pdf, docx, xlsx"><p class="field-hint">افصل بفاصلة، واتركها فارغة للسماح بجميع الامتدادات.</p></div><button class="primary" type="submit">حفظ حدود الملفات</button></form></section>
-          <section class="panel"><h2>النسخ الاحتياطي والاستعادة</h2><p class="muted">تتضمن النسخة الحسابات والصلاحيات والملفات وسلة المحذوفات والسجل. احتفظ بها في مكان خاص.</p><div class="backup-actions"><button id="backup-export" class="quiet">تنزيل نسخة احتياطية</button><div><label for="backup-file">اختيار نسخة لاستعادتها</label><input id="backup-file" type="file" accept=".bshbak"></div><button id="backup-inspect" class="quiet">فحص النسخة</button></div><p id="backup-status" role="status"></p></section>
+          <section class="panel"><h2>النسخ الاحتياطي والاستعادة</h2><p class="muted">تتضمن النسخة بيانات المتصفح والنسخ المحلية للملفات. لا تنسخ محتويات السيرفر أو تستعيدها. احتفظ بها في مكان خاص.</p><div class="backup-actions"><button id="backup-export" class="quiet">تنزيل نسخة احتياطية</button><div><label for="backup-file">اختيار نسخة لاستعادتها</label><input id="backup-file" type="file" accept=".bshbak"></div><button id="backup-inspect" class="quiet">فحص النسخة</button></div><p id="backup-status" role="status"></p></section>
         </section>
         <section id="trash-view" hidden><div class="page-heading"><div><span class="eyebrow">استعادة الملفات</span><h1>سلة المحذوفات</h1><p class="muted">الملفات المحذوفة تبقى ضمن مساحة مالكها، ويمكن استعادتها إلى مجلدها الأصلي.</p></div><button id="refresh-trash" class="quiet">تحديث</button></div><div class="panel"><div class="table-wrap"><table><thead><tr><th>الملف</th><th>المالك</th><th>المجلد</th><th>الحجم</th><th>تاريخ الحذف</th><th>الإجراء</th></tr></thead><tbody id="trash-body"></tbody></table></div><p id="trash-empty" class="empty-state" hidden>سلة المحذوفات فارغة.</p></div></section>
         <section id="audit-view" hidden><div class="page-heading"><div><span class="eyebrow">متابعة النشاط</span><h1>سجل العمليات</h1><p class="muted">عمليات هذه النسخة التجريبية داخل المتصفح، ويشمل السجل الرفع والتنزيل والتعديل والحذف.</p></div><button id="refresh-audit" class="quiet">تحديث</button></div><div class="panel"><label for="audit-search">البحث في السجل</label><input id="audit-search" type="search" placeholder="اسم المستخدم أو الملف أو العملية"><div class="table-wrap"><table><thead><tr><th>التاريخ والوقت</th><th>المستخدم</th><th>العملية</th><th>العنصر</th><th>التفاصيل</th></tr></thead><tbody id="audit-body"></tbody></table></div><p id="audit-empty" class="empty-state" hidden>لا توجد عمليات مطابقة.</p></div></section>
