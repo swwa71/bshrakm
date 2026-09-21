@@ -151,3 +151,81 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 /* Administration, folder access, storage and recovery. */
 .storage-card{display:flex;align-items:center;justify-content:space-between;gap:24px;border:1px solid #c6e2ed;background:#f1f9fc;padding:22px 24px;border-radius:14px;margin-bottom:26px}.storage-card h2{font-size:1rem;margin-bottom:8px}.storage-card progress{width:180px;flex-shrink:0}.folder-heading{display:flex;align-items:center;justify-content:space-between;margin:20px 0 12px}.folder-heading h2{font-size:1.05rem}.folder-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:26px}.folder-card{background:#fff;border:1px solid var(--line);padding:16px;text-align:right;display:flex;align-items:center;gap:12px;color:var(--ink);font-size:.9375rem}.folder-card:hover,.folder-card[aria-pressed=true]{border-color:var(--blue);background:#edf8fc}.folder-card span{color:var(--blue);font-size:1.5rem}.stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:24px}.stat-card{border:1px solid var(--line);border-radius:12px;background:#fff;padding:20px}.stat-card strong{display:block;color:var(--blue-dark);font-size:1.6rem;margin-bottom:8px}.stat-card span{font-size:.875rem;color:var(--muted)}.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}.settings-grid button{justify-self:start;grid-column:1/-1}.backup-actions{display:flex;align-items:end;gap:16px;flex-wrap:wrap;margin-top:20px}.backup-actions>div{flex:1;min-width:200px}.check-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.check-label{display:flex;gap:9px;align-items:center;font-weight:400!important;font-size:.875rem;margin-block:10px}.check-label input[type=checkbox]{width:18px;height:18px;min-height:18px;margin:0;flex-shrink:0;accent-color:var(--blue)}fieldset{border:1px solid var(--line);border-radius:9px;padding:14px;margin:18px 0}legend{padding:0 8px;font-size:.9375rem}.user-access{margin-top:18px}#user-folder-options{border-top:1px solid var(--line);padding-top:8px}fieldset:disabled{opacity:.55}.filters input[type=search]{width:220px;min-height:40px;padding:8px 12px;font-size:.875rem}.account{flex-wrap:wrap}.status-off{display:block;color:var(--danger);font-size:.8125rem;margin-top:5px}.status-on{display:block;color:#25754e;font-size:.8125rem;margin-top:5px}.admin-user-actions{display:flex;flex-wrap:wrap;gap:6px;min-width:180px}.admin-user-actions button{font-size:.8125rem}#audit-search{max-width:440px;margin-bottom:20px}#user-dialog{width:min(680px,calc(100% - 32px))}#backup-status{margin-top:15px}.folder-cards:empty{display:none}
 @media(max-width:780px){.storage-card{display:block;padding:18px}.storage-card progress{width:100%;margin-top:14px}.stat-grid{grid-template-columns:1fr 1fr}.stat-card{padding:15px}.stat-card strong{font-size:1.3rem}.settings-grid{grid-template-columns:1fr}.check-grid{grid-template-columns:1fr}.filters input[type=search]{width:100%}.account{gap:8px}.account>div{width:100%}.folder-heading{gap:8px}.folder-heading button{font-size:.8125rem}}
+
+/* Layered surfaces and the post-login welcome sequence. */
+html{min-height:100%;background:#eff6fb}
+body{min-height:100dvh;position:relative;isolation:isolate;overflow-x:clip;background:radial-gradient(ellipse at 8% 12%,#cfe9f5 0,transparent 38%),radial-gradient(ellipse at 88% 80%,#e0edcb80 0,transparent 32%),#f3f8fc}
+body::before{content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;background:linear-gradient(90deg,#f4f9fb40,#fff 30%,#fff 72%,#f4f9fb40),url('background.png') center/cover;opacity:.65}
+body::after{content:"";position:fixed;z-index:-1;pointer-events:none;width:650px;height:650px;border:70px solid #d5eaf350;border-radius:140px;left:-510px;top:16vh;transform:perspective(1100px) rotateY(28deg) rotateZ(-28deg);box-shadow:35px 50px 100px #4b84951a,inset 6px 6px 40px #ffffffc0}
+.login-screen{background:transparent;isolation:isolate}
+.login-screen::before{content:"";position:absolute;z-index:-1;width:260px;height:260px;right:-160px;bottom:15%;border:30px solid #bee2ee45;border-radius:70px;transform:perspective(650px) rotateY(-25deg) rotateZ(24deg);box-shadow:-18px 22px 55px #63889b12;pointer-events:none}
+.login-panel{padding-top:clamp(42px,9vh,90px)}
+.login-fields{background:#ffffffd9;backdrop-filter:blur(18px);border:1px solid #ffffff;border-radius:24px;box-shadow:0 24px 70px #426c8317,0 3px 9px #557b8310;padding:32px}
+.login-fields input{background:#ffffffc9;border-color:#dce7ed;border-radius:10px}
+.login-fields h1{font-size:1.65rem}
+.login-footer{color:#72909e;font-size:.75rem}
+#portal{min-height:100dvh;background:transparent}
+.topbar{position:sticky;top:0;z-index:30;min-height:88px;padding:12px 34px;background:#ffffffdf;backdrop-filter:blur(24px);border-bottom:1px solid #ffffff;box-shadow:0 8px 36px #39576609}
+.workspace{background:transparent;max-width:1700px;margin:0 auto;min-height:calc(100dvh - 133px)}
+.sidebar{background:#ffffff70;backdrop-filter:blur(12px);border-left:1px solid #ffffffb0;padding-top:35px}
+.sidebar .nav-label{letter-spacing:0;color:#8ba0ad;margin-bottom:14px}
+.sidebar .nav-item{gap:12px;border-radius:12px;margin-bottom:5px;padding-block:15px;font-size:.9375rem}
+.nav-item svg{width:22px;height:22px;flex-shrink:0;color:currentColor}
+.sidebar .nav-item.active{background:#deeff780;box-shadow:inset -3px 0 var(--blue);color:#176d90}
+main{background:transparent;padding-top:36px}
+.panel,.file-panel,.upload-panel{background:#fffffff0;border-color:#ffffff;border-radius:18px;box-shadow:0 12px 40px #39576609}
+.folder-card{border-color:#fff;background:#ffffffbd;border-radius:14px;box-shadow:0 8px 22px #486c7908;transition:transform .22s ease,box-shadow .22s ease,background .22s ease}
+.folder-card:hover{transform:translateY(-3px);box-shadow:0 14px 28px #486c7912}
+.portal-footer{background:#ffffff70;border-color:#ffffff80}
+.profile-account{position:relative;margin-inline-start:auto;display:block;flex-shrink:0}
+.profile-toggle{display:flex;align-items:center;gap:9px;background:transparent;border:0;padding:3px;border-radius:50px;color:#718998;min-height:50px}
+.profile-avatar{display:grid;place-items:center;width:46px;height:46px;border-radius:50%;background:linear-gradient(145deg,#39a8cb,#197695);color:#fff;box-shadow:0 5px 15px #237b9830,inset 0 1px 0 #ffffff75;border:1px solid #ffffff70}
+.profile-avatar svg{width:24px;height:24px}
+.profile-chevron svg{width:16px;height:16px}
+.profile-toggle:hover{background:#eaf4f8}
+.profile-toggle:focus-visible{outline:3px solid #50b6d5;outline-offset:4px}
+.profile-menu{position:absolute;left:0;top:calc(100% + 13px);width:272px;max-width:calc(100vw - 32px);padding:9px;border-radius:18px;border:1px solid #e1edf2;background:#ffffff;box-shadow:0 22px 65px #24475c24;animation:profile-menu-enter 180ms ease both}
+.profile-menu-heading{padding:15px 13px 18px;border-bottom:1px solid #edf2f5;margin-bottom:5px}
+.profile-menu-heading strong,.profile-menu-heading span,.profile-menu-heading small{display:block;overflow-wrap:anywhere}
+.profile-menu-heading strong{font-size:1rem;color:var(--ink);margin-bottom:6px}
+.profile-menu-heading span{font-size:.875rem;color:var(--muted);margin-bottom:5px}
+.profile-menu-heading small{font-size:.75rem;color:#8da1ad}
+.profile-menu>button{display:block;text-align:right;width:100%;padding:12px;border:0;background:transparent;color:var(--ink);border-radius:9px;font-size:.875rem;font-weight:400}
+.profile-menu>button:hover{background:#edf7fa}
+.profile-menu>button.profile-logout{color:var(--danger)}
+.profile-menu>button.profile-logout:hover{background:#fff2f2}
+.profile-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+input[readonly]{background:#eef3f6;color:#778b98;border-color:#e6edf1;cursor:default}
+#profile-dialog{width:min(550px,calc(100% - 32px))}
+.advanced-settings{border:1px solid #e2eaf0;border-radius:10px;padding:12px;margin:14px 0}
+.advanced-settings summary{color:var(--muted);cursor:pointer;font-size:.875rem}
+.scoped-share-form{display:grid;grid-template-columns:140px minmax(170px,1fr) minmax(170px,1fr) auto;gap:14px;align-items:end;margin:20px 0 10px}
+.scoped-share-form button{min-height:47px;white-space:nowrap}
+.welcome-screen{position:fixed;inset:0;z-index:120;isolation:isolate;pointer-events:auto;overflow:hidden}
+.welcome-screen::before{content:"";position:absolute;inset:0;z-index:-1;background:radial-gradient(circle at 50% 40%,#fff 0,#f3f9fd 50%,#e8f3f8 100%)}
+.welcome-halo{position:absolute;width:260px;height:260px;border:1px solid #8dcfe040;border-radius:50%;top:calc(50% - 162px);left:calc(50% - 130px);box-shadow:0 0 0 24px #b4dfe610,0 0 0 70px #c7e5ec0d}
+.welcome-avatar{position:absolute;top:calc(50% - 76px);left:calc(50% - 44px);width:88px;height:88px;border-radius:50%;display:grid;place-items:center;color:#fff;border:1px solid #ffffffb0;background:linear-gradient(145deg,#39a8cb,#197695);box-shadow:0 15px 35px #237b9830,inset 0 1px 0 #ffffff75;transform-origin:center;will-change:transform}
+.welcome-avatar svg{width:46px;height:46px}
+.welcome-copy{position:absolute;top:calc(50% + 35px);left:24px;right:24px;text-align:center;color:#294b5e}
+.welcome-copy p{font-size:clamp(1.6rem,4vw,2.35rem);font-weight:400;line-height:1.6;margin:0 0 8px;overflow-wrap:anywhere}
+.welcome-copy strong{font-weight:700;color:#1884a8;unicode-bidi:isolate}
+.welcome-copy>span{font-size:.9375rem;color:#849ca9}
+body.entry-running{overflow:hidden}
+body.entry-running #login-screen{position:fixed;inset:0;z-index:130;overflow:hidden;background:#f7fbfd}
+#login-screen.login-leaving{animation:login-leave-right 650ms cubic-bezier(.4,0,.2,1) both;pointer-events:none}
+body.entry-running .profile-toggle{visibility:hidden}
+.welcome-screen[data-phase="waiting"] .welcome-avatar,.welcome-screen[data-phase="waiting"] .welcome-copy,.welcome-screen[data-phase="waiting"] .welcome-halo{visibility:hidden}
+.welcome-screen[data-phase="greeting"] .welcome-avatar{animation:welcome-avatar-enter 400ms cubic-bezier(.2,.8,.2,1) both}
+.welcome-screen[data-phase="greeting"] .welcome-copy{animation:welcome-copy-enter 450ms ease-out 100ms both}
+.welcome-screen[data-phase="docking"] .welcome-avatar{animation:welcome-avatar-dock 900ms cubic-bezier(.4,0,.2,1) both}
+.welcome-screen[data-phase="docking"] .welcome-copy,.welcome-screen[data-phase="docking"] .welcome-halo{animation:welcome-fade 320ms ease both}
+.welcome-screen[data-phase="docking"]::before{animation:welcome-fade 750ms ease both}
+@keyframes login-leave-right{from{transform:translate3d(0,0,0);opacity:1}to{transform:translate3d(105vw,0,0);opacity:0}}
+@keyframes welcome-avatar-enter{from{opacity:0;transform:translateY(14px) scale(.9)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes welcome-copy-enter{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes welcome-avatar-dock{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(var(--profile-dx),var(--profile-dy),0) scale(var(--profile-scale))}}
+@keyframes welcome-fade{from{opacity:1}to{opacity:0}}
+@keyframes profile-menu-enter{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:1150px){.scoped-share-form{grid-template-columns:1fr 1fr}.scoped-share-form button{justify-self:start}.topbar{padding-inline:24px}}
+@media(max-width:780px){.topbar{padding:10px 16px;flex-wrap:nowrap;min-height:78px}.profile-account{width:auto;display:block}.profile-account>div{width:260px}.profile-avatar{width:42px;height:42px}.profile-avatar svg{width:23px;height:23px}.profile-chevron{display:none}.identity{min-width:0}.identity-text span{display:none}.identity-text{padding-inline-start:10px}.brand.small{width:100px;height:52px}.sidebar{padding:10px 12px}.sidebar .nav-item{margin:0;padding:11px 13px;font-size:.8125rem}.sidebar .nav-item.active{box-shadow:inset 0 -3px var(--blue)}.nav-item svg{width:20px;height:20px}.sidebar nav{gap:8px}.login-panel{padding:38px 18px 28px}.login-fields{padding:26px 24px;border-radius:21px}.login-brand-slot{margin-bottom:24px}.scoped-share-form,.profile-form-grid{grid-template-columns:1fr}.scoped-share-form button{width:100%}.profile-menu{max-width:calc(100vw - 32px)}main{padding-top:28px}}
+@media(prefers-reduced-motion:reduce){#login-screen.login-leaving,.welcome-screen .welcome-avatar,.welcome-screen .welcome-copy,.welcome-screen::before,.welcome-screen .welcome-halo,.profile-menu{animation:none!important}.folder-card:hover{transform:none}}

@@ -13,21 +13,27 @@
   let database, startup, queue = Promise.resolve();
 
   function migrate(state) {
-    state.fileShares ||= []; state.audit ||= [];
+    state.fileShares ||= []; state.folderShares ||= []; state.audit ||= [];
+    // Convert old whole-account grants into grants for existing folders only.
+    for (const grant of state.shares || []) for (const folder of state.folders) {
+      if (!state.folderShares.some(s => s.ownerId === grant.ownerId && s.viewerId === grant.viewerId && s.folderId === folder.id)) state.folderShares.push({ ...grant, folderId: folder.id });
+    }
+    state.shares = [];
     state.settings ||= { maxFileSize: MAX_FILE_SIZE, extensions: [] };
     for (const u of state.users) {
       u.active ??= true; u.permissions = { ...defaults(), ...u.permissions };
       u.allFolders ??= true; u.folderIds ||= []; u.quotaBytes ??= 2 * MAX_FILE_SIZE;
       u.failedAttempts ??= 0; u.lockedUntil ??= 0;
+      u.jobTitle ??= u.role === 'admin' ? 'مسؤول النظام' : ''; u.email ??= ''; u.phone ??= '';
     }
     for (const f of state.files) { f.deleted_at ??= null; f.updated_at ??= f.created_at; }
-    state.version = 2; return state;
+    state.version = 3; return state;
   }
   const usedBytes = (state, ownerId) => state.files.filter(f => f.owner_id === ownerId).reduce((n, f) => n + f.size, 0);
-  const userView = (u, state) => ({ id: u.id, username: u.username, name: u.name, role: u.role,
+  const userView = (u, state) => ({ id: u.id, username: u.username, name: u.name, role: u.role, jobTitle: u.jobTitle, email: u.email, phone: u.phone,
     active: u.active, permissions: { ...u.permissions }, allFolders: u.allFolders, folderIds: [...u.folderIds],
     quotaBytes: u.quotaBytes, usedBytes: state ? usedBytes(state, u.id) : 0, lockedUntil: u.lockedUntil });
-  const publicUser = u => ({ id: u.id, username: u.username, name: u.name });
+  const publicUser = u => ({ id: u.id, username: u.username, name: u.name, jobTitle: u.jobTitle });
   const allowed = (user, permission) => user.role === 'admin' || user.permissions[permission];
   const folderAllowed = (user, folderId) => user.role === 'admin' || user.allFolders || user.folderIds.includes(folderId);
   function requirePermission(user, permission) { if (!allowed(user, permission)) throw fail(403, 'هذه العملية غير مسموحة لحسابك.'); }
@@ -75,9 +81,9 @@
   async function init() {
     if (!crypto?.subtle || !crypto?.randomUUID || !window.indexedDB) throw fail(503, 'استخدم متصفحًا حديثًا ورابط HTTPS، أو افتح ملف التجربة في Chrome أو Edge.');
     database = await openDatabase(); const existing = await read('state', 'portal');
-    if (existing) { if (existing.version !== 2) await save(migrate(existing)); return; }
+    if (existing) { if (existing.version !== 3) await save(migrate(existing)); return; }
     const users = [];
-    for (const [username, name, role, password] of [['admin', 'مسؤول النظام التجريبي', 'admin', '1234'], ['1001', 'موظف تجريبي', 'user', '1234'], ['ahmad', 'أحمد — حساب تجريبي', 'user', 'abcd']]) {
+    for (const [username, name, role, password] of [['admin', 'مسؤول النظام', 'admin', '1234']]) {
       const salt = id(); users.push({ id: id(), username, name, role, revision: 1, salt, passwordHash: await passwordHash(password, salt) });
     }
     await save(migrate({ users, folders: ['المستندات العامة', 'التقارير', 'النماذج'].map(name => ({ id: id(), name })), files: [], shares: [], sharingEnabled: true }));
@@ -97,11 +103,14 @@
   function canRead(state, user, file) {
     if (file.deleted_at !== null || !folderAllowed(user, file.folder_id)) return false;
     return user.role === 'admin' || file.owner_id === user.id || (state.sharingEnabled && (
-      state.shares.some(s => s.ownerId === file.owner_id && s.viewerId === user.id) || state.fileShares.some(s => s.fileId === file.id && s.viewerId === user.id)));
+      state.folderShares.some(s => s.ownerId === file.owner_id && s.folderId === file.folder_id && s.viewerId === user.id) || state.fileShares.some(s => s.fileId === file.id && s.viewerId === user.id)));
   }
   function validateUser(input, previous, state) {
     const username = typeof input.username === 'string' ? input.username.trim().normalize('NFC') : '';
     const name = typeof input.name === 'string' ? input.name.trim() : '';
+    const jobTitle = input.jobTitle ?? previous?.jobTitle ?? '', email = input.email ?? previous?.email ?? '', phone = input.phone ?? previous?.phone ?? '';
+    if (typeof jobTitle !== 'string' || [...jobTitle].length > 100 || /[\p{C}]/u.test(jobTitle)) throw fail(400, 'المسمى الوظيفي يجب ألا يتجاوز ١٠٠ خانة.');
+    validateContact(email, phone);
     if (!username || [...username].length > 64 || /[\p{C}\s]/u.test(username)) throw fail(400, 'أدخل اسم مستخدم حتى ٦٤ خانة دون مسافات.');
     if (!name || [...name].length > 100 || !['admin', 'user'].includes(input.role)) throw fail(400, 'تحقق من الاسم والصلاحية.');
     const active = input.active ?? previous?.active ?? true, allFolders = input.allFolders ?? previous?.allFolders ?? true;
@@ -110,7 +119,11 @@
     if (typeof active !== 'boolean' || typeof allFolders !== 'boolean' || !Array.isArray(folderIds) || folderIds.some(f => !state.folders.some(d => d.id === f))) throw fail(400, 'إعدادات المجلدات أو حالة الحساب غير صحيحة.');
     if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 0 || quotaBytes > 1024 * MAX_FILE_SIZE) throw fail(400, 'حدد مساحة من صفر إلى ١٠٢٤ جيجابايت.');
     if (!permissions || PERMISSIONS.some(p => typeof permissions[p] !== 'boolean')) throw fail(400, 'الصلاحيات غير صحيحة.');
-    return { username, name, role: input.role, active, allFolders, folderIds: [...new Set(folderIds)], quotaBytes, permissions: Object.fromEntries(PERMISSIONS.map(p => [p, permissions[p]])) };
+    return { username, name, jobTitle: jobTitle.trim(), email: email.trim(), phone: phone.trim(), role: input.role, active, allFolders, folderIds: [...new Set(folderIds)], quotaBytes, permissions: Object.fromEntries(PERMISSIONS.map(p => [p, permissions[p]])) };
+  }
+  function validateContact(email, phone) {
+    if (typeof email !== 'string' || email.length > 254 || (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))) throw fail(400, 'البريد الإلكتروني غير صحيح.');
+    if (typeof phone !== 'string' || phone.length > 30 || (phone.trim() && !/^[+()\d\s-]+$/.test(phone.trim()))) throw fail(400, 'رقم الجوال غير صحيح.');
   }
   function validateFilename(name) { if (typeof name !== 'string' || !name.trim() || [...name].length > 240 || /[\p{C}\/\\]/u.test(name) || ['.', '..'].includes(name)) throw fail(400, 'اسم الملف غير صالح أو طويل جدًا.'); }
   function validateExtension(state, name) {
@@ -148,6 +161,17 @@
       }
       const { user, data: currentSession } = session(state);
       if (path === '/api/me' && method === 'GET') return { user: userView(user, state), lastActive: currentSession.lastActive, idleMs: IDLE_MS, sharingEnabled: state.sharingEnabled, ...state.settings };
+      if (path === '/api/profile' && method === 'PATCH') {
+        if (Object.keys(data).some(k => !['username', 'email', 'phone'].includes(k))) throw fail(403, 'يمكنك تعديل اسم المستخدم والبريد والجوال فقط. الاسم والمسمى الوظيفي يحددهما المسؤول.');
+        const updated = validateUser({ ...user, ...data }, user, state);
+        if (state.users.some(u => u.id !== user.id && keyOf(u.username) === keyOf(updated.username))) throw fail(409, 'اسم المستخدم مستخدم بالفعل.');
+        const changed = user.username !== updated.username;
+        user.username = updated.username; user.email = updated.email; user.phone = updated.phone;
+        if (changed) user.revision++;
+        audit(state, user, 'تعديل الملف الشخصي'); await save(state);
+        if (changed) { currentSession.revision = user.revision; sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentSession)); }
+        return { user: userView(user, state) };
+      }
       if (path === '/api/activity' && method === 'POST') { currentSession.lastActive = Date.now(); sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentSession)); return { lastActive: currentSession.lastActive }; }
       if (path === '/api/password' && method === 'POST') {
         if (await passwordHash(data.currentPassword, user.salt) !== user.passwordHash) throw fail(400, 'كلمة المرور الحالية غير صحيحة.');
@@ -177,6 +201,7 @@
         let updated = state.users.find(u => u.id === userId);
         if (method === 'PATCH' && !updated) throw fail(404, 'المستخدم غير موجود.');
         const c = validateUser(data, updated, state);
+        if (method === 'POST' && !c.jobTitle) throw fail(400, 'أدخل المسمى الوظيفي للمستخدم.');
         if (state.users.some(u => u.id !== userId && keyOf(u.username) === keyOf(c.username))) throw fail(409, 'اسم المستخدم مستخدم بالفعل.');
         if (updated?.active && updated.role === 'admin' && (!c.active || c.role !== 'admin') && state.users.filter(u => u.active && u.role === 'admin').length === 1) throw fail(409, 'يجب أن يبقى مسؤول نظام مفعّل واحد على الأقل.');
         let changed = false;
@@ -204,14 +229,41 @@
       }
       if (path === '/api/audit' && method === 'GET') { requireAdmin(state); return { entries: [...state.audit].reverse() }; }
       if (path === '/api/trash' && method === 'GET') { requireAdmin(state); return { files: state.files.filter(f => f.deleted_at !== null).map(f => decorate(state, f)).sort((a, b) => b.deleted_at - a.deleted_at) }; }
-      if (path === '/api/shares' && method === 'GET') return { sharingEnabled: state.sharingEnabled && allowed(user, 'share'), users: state.users.filter(u => u.id !== user.id).map(publicUser), viewerIds: state.shares.filter(s => s.ownerId === user.id).map(s => s.viewerId) };
+      if (path === '/api/shares' && method === 'GET') {
+        const recipients = state.users.filter(u => u.id !== user.id && u.active);
+        const eligible = folderId => recipients.filter(u => folderAllowed(u, folderId)).map(u => u.id);
+        const ownFiles = state.files.filter(f => f.owner_id === user.id && canRead(state, user, f));
+        const grants = [
+          ...state.folderShares.filter(s => s.ownerId === user.id).map(s => ({ kind: 'folder', targetId: s.folderId, viewerId: s.viewerId, name: state.folders.find(f => f.id === s.folderId)?.name || 'مجلد' })),
+          ...state.fileShares.filter(s => state.files.some(f => f.id === s.fileId && f.owner_id === user.id)).map(s => ({ kind: 'file', targetId: s.fileId, viewerId: s.viewerId, name: state.files.find(f => f.id === s.fileId)?.name || 'ملف' }))
+        ];
+        return { sharingEnabled: state.sharingEnabled && allowed(user, 'share'), users: state.users.filter(u => u.id !== user.id).map(publicUser),
+          folders: state.folders.filter(f => folderAllowed(user, f.id)).map(f => ({ ...f, viewerIds: eligible(f.id) })),
+          files: ownFiles.map(f => ({ id: f.id, name: f.name, folder_name: state.folders.find(d => d.id === f.folder_id)?.name || '', viewerIds: eligible(f.folder_id) })), grants };
+      }
       if (path === '/api/shares' && method === 'POST') {
         requirePermission(user, 'share'); if (!state.sharingEnabled) throw fail(403, 'المشاركة مغلقة حاليًا بقرار مسؤول النظام.');
-        if (data.viewerId === user.id || !state.users.some(u => u.id === data.viewerId && u.active)) throw fail(400, 'اختر مستخدمًا آخر مفعّلًا.');
-        if (!state.shares.some(s => s.ownerId === user.id && s.viewerId === data.viewerId)) state.shares.push({ ownerId: user.id, viewerId: data.viewerId });
-        audit(state, user, 'مشاركة جميع الملفات', state.users.find(u => u.id === data.viewerId).name); await save(state); return { ok: true };
+        if (!['file', 'folder'].includes(data.kind)) throw fail(400, 'حدد مشاركة ملف أو مجلد فقط.');
+        const target = data.kind === 'folder' ? state.folders.find(f => f.id === data.targetId && folderAllowed(user, f.id)) : state.files.find(f => f.id === data.targetId && f.owner_id === user.id && canRead(state, user, f));
+        if (!target) throw fail(403, 'العنصر غير موجود أو ليس لديك إذن مشاركته.');
+        const folderId = data.kind === 'folder' ? target.id : target.folder_id;
+        const viewer = state.users.find(u => u.id === data.viewerId && u.id !== user.id && u.active && folderAllowed(u, folderId));
+        if (!viewer) throw fail(400, 'اختر مستخدمًا مفعّلًا لديه صلاحية المجلد.');
+        if (data.kind === 'folder') {
+          if (!state.folderShares.some(s => s.ownerId === user.id && s.folderId === target.id && s.viewerId === viewer.id)) state.folderShares.push({ ownerId: user.id, folderId: target.id, viewerId: viewer.id });
+        } else if (!state.fileShares.some(s => s.fileId === target.id && s.viewerId === viewer.id)) state.fileShares.push({ fileId: target.id, viewerId: viewer.id });
+        audit(state, user, data.kind === 'folder' ? 'مشاركة مجلد' : 'مشاركة ملف', target.name, viewer.name); await save(state); return { ok: true };
       }
-      if (path.startsWith('/api/shares/') && method === 'DELETE') { state.shares = state.shares.filter(s => !(s.ownerId === user.id && s.viewerId === path.split('/').at(-1))); audit(state, user, 'إلغاء مشاركة جميع الملفات'); await save(state); return { ok: true }; }
+      const revokeShare = /^\/api\/shares\/(file|folder)\/([^/]+)\/([^/]+)$/.exec(path);
+      if (revokeShare && method === 'DELETE') {
+        const [, kind, targetId, viewerId] = revokeShare;
+        if (kind === 'folder') state.folderShares = state.folderShares.filter(s => !(s.ownerId === user.id && s.folderId === targetId && s.viewerId === viewerId));
+        else {
+          if (!state.files.some(f => f.id === targetId && f.owner_id === user.id)) throw fail(403, 'لا يمكنك إلغاء مشاركة ملف مستخدم آخر.');
+          state.fileShares = state.fileShares.filter(s => !(s.fileId === targetId && s.viewerId === viewerId));
+        }
+        audit(state, user, kind === 'folder' ? 'إلغاء مشاركة مجلد' : 'إلغاء مشاركة ملف'); await save(state); return { ok: true };
+      }
       if (path === '/api/files' && method === 'GET') return { sharingEnabled: state.sharingEnabled, files: state.files.filter(f => canRead(state, user, f)).map(f => decorate(state, f)).sort((a, b) => b.created_at - a.created_at) };
       const fileShareRoute = /^\/api\/files\/([^/]+)\/shares(?:\/([^/]+))?$/.exec(path);
       if (fileShareRoute) {
@@ -220,7 +272,7 @@
         const candidates = state.users.filter(u => u.id !== user.id && folderAllowed(u, file.folder_id));
         if (method === 'GET' && !viewerId) return { file: { id: file.id, name: file.name }, sharingEnabled: state.sharingEnabled && allowed(user, 'share'),
           users: state.users.filter(u => u.id !== user.id).map(u => ({ ...publicUser(u), eligible: u.active && folderAllowed(u, file.folder_id) })),
-          viewerIds: state.fileShares.filter(s => s.fileId === fileId).map(s => s.viewerId), allFilesViewerIds: state.shares.filter(s => s.ownerId === user.id).map(s => s.viewerId) };
+          viewerIds: state.fileShares.filter(s => s.fileId === fileId).map(s => s.viewerId), folderViewerIds: state.folderShares.filter(s => s.ownerId === user.id && s.folderId === file.folder_id).map(s => s.viewerId) };
         if (method === 'POST' && !viewerId) {
           requirePermission(user, 'share'); if (!state.sharingEnabled) throw fail(403, 'المشاركة مغلقة حاليًا بقرار مسؤول النظام.');
           if (!candidates.some(u => u.id === data.viewerId && u.active)) throw fail(400, 'اختر مستخدمًا مفعّلًا لديه صلاحية المجلد.');
@@ -254,7 +306,7 @@
         }
         if (!route[2] && method === 'DELETE') {
           requirePermission(user, 'delete'); file.deleted_at = Date.now();
-          // Remove file-specific grants; owner-wide grants still apply after restore.
+          // Remove file-specific grants; the owner's folder grants still apply after restore.
           state.fileShares = state.fileShares.filter(s => s.fileId !== file.id);
           audit(state, user, 'حذف إلى السلة', file.name); await save(state); return { ok: true };
         }
@@ -333,7 +385,9 @@
   }
   function validateBackupState(s) {
     const invalid = () => { throw fail(400, 'ملف النسخة الاحتياطية غير صالح.'); };
-    if (!s || s.version !== 2 || typeof s.sharingEnabled !== 'boolean' || ['users', 'folders', 'files', 'shares', 'fileShares', 'audit'].some(k => !Array.isArray(s[k]))) invalid();
+    if (!s || ![2, 3].includes(s.version) || typeof s.sharingEnabled !== 'boolean' || ['users', 'folders', 'files', 'shares', 'fileShares', 'audit'].some(k => !Array.isArray(s[k]))) invalid();
+    if (s.version === 3 && !Array.isArray(s.folderShares)) invalid();
+    if (s.version === 2) migrate(s);
     const unique = list => { const keys = new Set(); for (const x of list) { if (!x || typeof x.id !== 'string' || !x.id || x.id.length > 100 || keys.has(x.id)) invalid(); keys.add(x.id); } return keys; };
     const userIds = unique(s.users), folderIds = unique(s.folders), fileIds = unique(s.files); unique(s.audit);
     for (const f of s.folders) if (typeof f.name !== 'string' || !f.name.trim() || f.name.length > 160) invalid();
@@ -350,6 +404,7 @@
       if (!userIds.has(f.owner_id) || !folderIds.has(f.folder_id) || !Number.isSafeInteger(f.size) || f.size < 0 || f.size > MAX_FILE_SIZE || !Number.isFinite(f.created_at) || !Number.isFinite(f.updated_at) || (f.deleted_at !== null && !Number.isFinite(f.deleted_at))) invalid();
     }
     for (const grant of s.shares) if (!userIds.has(grant.ownerId) || !userIds.has(grant.viewerId) || grant.ownerId === grant.viewerId) invalid();
+    for (const grant of s.folderShares) if (!userIds.has(grant.ownerId) || !userIds.has(grant.viewerId) || !folderIds.has(grant.folderId) || grant.ownerId === grant.viewerId) invalid();
     for (const grant of s.fileShares) if (!fileIds.has(grant.fileId) || !userIds.has(grant.viewerId)) invalid();
     for (const event of s.audit) if (!Number.isFinite(event.at) || ['actor', 'action', 'target', 'details'].some(k => typeof event[k] !== 'string') || (event.actorId !== null && !userIds.has(event.actorId))) invalid();
     s.settings = validateSettings(s.settings, s.settings); return s;
