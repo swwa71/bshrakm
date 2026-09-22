@@ -7,12 +7,54 @@
   <title>بشراكم | بوابة الموظفين</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preload" as="image" href="background.png">
-  <link rel="stylesheet" href="styles.css?v=20260922-floating-v4">
-  <script src="demo-store.js?v=20260922-storage-v5" defer></script>
-  <script src="app.js?v=20260922-storage-v5" defer></script>
+  <script id="startup-guard">
+  (function () {
+    var ready = false, expired = false;
+    document.documentElement.classList.add('js-booting');
+    function recover() {
+      expired = true;
+      document.documentElement.classList.remove('js-booting');
+      var screen = document.getElementById('login-screen');
+      var portal = document.getElementById('portal');
+      if (!screen || (screen.hidden && portal && !portal.hidden)) return;
+      screen.dataset.introState = 'ready';
+      var fields = document.querySelector('.login-fields');
+      if (fields) fields.inert = false;
+      var controls = document.getElementById('login-controls');
+      var submit = document.querySelector('#login-form button[type="submit"]');
+      if (controls) controls.disabled = !ready;
+      if (submit) submit.disabled = !ready;
+      var warning = document.getElementById('startup-recovery');
+      if (warning) warning.hidden = ready;
+    }
+    // Independent of app.js: a missing script must never leave a blank background.
+    var watchdog = setTimeout(recover, 7000);
+    window.PortalStartup = {
+      ready: function () {
+        ready = true;
+        document.documentElement.classList.remove('js-booting');
+        if (expired) recover();
+        var warning = document.getElementById('startup-recovery');
+        if (warning) warning.hidden = true;
+      },
+      complete: function () { if (ready) clearTimeout(watchdog); },
+      failed: recover
+    };
+    window.addEventListener('error', function (event) {
+      if (!ready && ((event.target && event.target.tagName === 'SCRIPT') || /\/(app|demo-store)\.js(?:\?|$)/.test(event.filename || ''))) recover();
+    }, true);
+    document.addEventListener('DOMContentLoaded', function () { if (expired) recover(); });
+    document.addEventListener('click', function (event) {
+      if (event.target && event.target.id === 'startup-retry') location.reload();
+    });
+  }());
+  </script>
+  <link rel="stylesheet" href="styles.css?v=20260922-startup-v6">
+  <script src="demo-store.js?v=20260922-startup-v6" defer></script>
+  <script src="app.js?v=20260922-startup-v6" defer></script>
 </head>
 <body>
-  <noscript><p class="notice error">فعّل JavaScript لتشغيل تجربة البوابة.</p></noscript>
+  <noscript><p class="notice error">JavaScript معطّل في هذا المتصفح. من إعدادات الموقع في Chrome، اسمح بـ JavaScript ثم أعد تحميل الصفحة لتسجيل الدخول.</p></noscript>
   <section id="login-screen" class="login-screen" data-intro-state="idle">
     <div class="login-art" role="img" aria-label="شعار بشراكم، الجمعية الخيرية لتحفيظ القرآن الكريم بمنطقة الجوف"></div>
     <div class="login-panel">
@@ -22,14 +64,18 @@
         <span class="eyebrow">بوابة الموظفين</span>
         <h1>مرحبًا بعودتك</h1>
         <p class="muted login-intro">سجّل دخولك للوصول إلى ملفاتك ومجلداتك.</p>
+        <div id="startup-recovery" class="notice warning" role="alert" hidden><p>تعذّر إكمال تحميل البوابة. اضغط إعادة المحاولة، وإذا استمرت المشكلة حدّث الصفحة باستخدام Ctrl + F5.</p><button type="button" id="startup-retry" class="quiet">إعادة المحاولة</button></div>
         <form id="login-form">
+          <fieldset id="login-controls" disabled>
           <label for="login-username">اسم المستخدم</label>
           <input id="login-username" name="username" autocomplete="username" maxlength="64" required>
           <label for="login-password">كلمة المرور</label>
           <input id="login-password" name="password" type="password" autocomplete="current-password" required>
           <p id="login-error" class="form-message error" role="alert"></p>
-          <button type="submit" class="primary full">تسجيل الدخول <span aria-hidden="true">←</span></button>
+          <button type="submit" class="primary full" disabled>تسجيل الدخول <span aria-hidden="true">←</span></button>
+          </fieldset>
         </form>
+
 
         </div>
       </div>
@@ -127,3 +173,4 @@
   <dialog id="restore-dialog"><form id="restore-form"><h2>استعادة النسخة الاحتياطية</h2><p id="restore-summary"></p><p class="notice warning">سيتم استبدال بيانات التجربة الحالية بالكامل ببيانات النسخة، وإنهاء الجلسات. نزّل نسخة من بياناتك الحالية أولًا إذا كنت تحتاجها.</p><label class="check-label"><input id="restore-confirm" type="checkbox" required> أوافق على استبدال البيانات الحالية</label><p id="restore-error" class="error" role="alert"></p><div class="dialog-actions"><button type="submit" class="danger">استعادة واستبدال البيانات</button><button type="button" class="quiet close-dialog">إلغاء</button></div></form></dialog>
 </body>
 </html>
+
