@@ -1,5 +1,3 @@
-const SERVER_STORAGE_URL = 'https://ninety-coats-fly.loca.lt/storage-info';
-const UPLOAD_URL = 'https://ninety-coats-fly.loca.lt/upload';
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 let currentUser = null, folders = [], files = [], users = [], sharedUsers = [];
@@ -307,23 +305,8 @@ function renderFiles() {
 async function showView(view, focus = true) {
   if (!currentUser || !['files','upload','shares','admin','trash','audit'].includes(view) || (['admin','trash','audit'].includes(view) && currentUser.role !== 'admin')) return;
   closeItemMenu(); closeProfileMenu(); currentView = view; $('#notice').hidden = true;
-  for (const name of ['files','upload','shares','admin','trash','audit']) $('#' + name + '-view').hidden = name !== view;
-  $$('.nav-item').forEach(b => { const active = b.dataset.view === view; b.classList.toggle('active',active); if (active) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
-  if (focus) $('#main-content').focus({ preventScroll: true });
-  if (view === 'files' || view === 'upload') { await loadFolders(); await loadFiles(); }
-  else if (view === 'shares') await loadShares();
-  else if (view === 'admin') await loadAdmin();
-  else if (view === 'trash') await loadTrash();
-  else await loadAudit();
-}
-async function enterPortal(data, animate = false) {
-  cancelLoginIntro(); cancelEntryAnimation();
-  const sequence = entrySequence;
-  const withMotion = animate && !matchMedia('(prefers-reduced-motion: reduce)').matches;
-  currentUser = data.user; lastActivity = data.lastActive; idleMs = data.idleMs; lastHeartbeat = Date.now();
-  renderProfile();
-  $$('.admin-only').forEach(el => el.hidden = currentUser.role !== 'admin');
-  $('#portal').hidden = false; $('#portal').inert = withMotion; $('#login-password').value = '';
+  for (const name of ['files','upload','shares','admin','trash','audit']) $('#' + name + '-view').hidden = name !== view;   $$('.nav-item').forEach(b => { const active = b.dataset.view === view; b.classList.toggle('active',active); if (active) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
+  if (focus) $('#main-content').focus({ preventScroll: true });   if (view === 'files' \vert{}\vert{} view === 'upload') { await loadFolders(); await loadFiles(); }   else if (view === 'shares') await loadShares();   else if (view === 'admin') await loadAdmin();   else if (view === 'trash') await loadTrash();   else await loadAudit(); } async function enterPortal(data, animate = false) {   cancelLoginIntro(); cancelEntryAnimation();   const sequence = entrySequence;   const withMotion = animate && !matchMedia('(prefers-reduced-motion: reduce)').matches;   currentUser = data.user; lastActivity = data.lastActive; idleMs = data.idleMs; lastHeartbeat = Date.now();   renderProfile();   $$('.admin-only').forEach(el => el.hidden = currentUser.role !== 'admin');$('#portal').hidden = false; $('#portal').inert = withMotion; $('#login-password').value = '';
   if (withMotion) document.body.classList.add('entry-running');
   else $('#login-screen').hidden = true;
   $('#all-files-option').hidden = currentUser.role !== 'admin';
@@ -352,15 +335,13 @@ document.addEventListener('click',event=>{if(!event.target.closest?.('.profile-a
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('#profile-menu').hidden){closeProfileMenu(true);}});
 $('#edit-profile').addEventListener('click',()=>{
   closeProfileMenu(); $('#profile-name').value=currentUser.name;$('#profile-job-title').value=currentUser.jobTitle||'';
-  $('#profile-username').value=currentUser.username;$('#profile-username').readOnly=currentUser.role!=='admin';$('#profile-email').value=currentUser.email||'';$('#profile-phone').value=currentUser.phone||'';
+  $('#profile-username').value=currentUser.username;$('#profile-username').readOnly=currentUser.role!=='admin';$('#profile-email').value=currentUser.email\vert{}\vert{}'';$('#profile-phone').value=currentUser.phone||'';
   $('#profile-error').textContent='';$('#profile-dialog').showModal();
 });
 $('#profile-form').addEventListener('submit',async event=>{
   event.preventDefault();event.submitter.disabled=true;
   try{const result=await api('/api/profile',{method:'PATCH',data:{...(currentUser.role==='admin'?{username:$('#profile-username').value}:{}),email:$('#profile-email').value,phone:$('#profile-phone').value}});currentUser=result.user;renderProfile();$('#profile-dialog').close();notice('تم حفظ بياناتك الشخصية.');}
-  catch(error){$('#profile-error').textContent=error.message;}finally{event.submitter.disabled=false;}
-});
-$$('.nav-item').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view).catch(showError)));
+  catch(error){$('#profile-error').textContent=error.message;}finally{event.submitter.disabled=false;} }); $$('.nav-item').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view).catch(showError)));
 $('#upload-folder').addEventListener('change',updateUpload); $('#upload-file').addEventListener('change',updateUpload);
 $('#file-scope').addEventListener('change',()=>loadFiles().catch(showError)); $('#file-folder').addEventListener('change',()=>{renderFiles();renderFolderCards();});
 $('#file-search').addEventListener('input',()=>{renderFolderCards();renderFiles();});
@@ -395,7 +376,7 @@ async function loadTargetShare() {
   if(!target)throw new Error('هذا العنصر غير متاح لإدارة أذوناته.');
   const direct=data.grants.filter(g=>g.kind===kind&&g.targetId===targetId).map(g=>g.viewerId);
   const inherited=kind==='file'?(await api(`/api/files/${targetId}/shares`)).folderViewerIds:[];
-  if(!currentUser || $('#share-file-id').value!==targetId || $('#share-target-kind').value!==kind)return false;
+  if(!currentUser || $('#share-file-id').value!==targetId \vert{}\vert{} $('#share-target-kind').value!==kind)return false;
   $('#file-share-title').textContent='أذونات الاطلاع · '+(kind==='folder'?'مجلد':'ملف');
   $('#file-share-name').textContent=target.name;
   $('#target-share-help').textContent=kind==='folder'?'يشمل الإذن ملفاتك الحالية والجديدة داخل هذا المجلد، ولا يشمل ملفات الآخرين أو المجلدات الأخرى.':'يشمل الإذن هذا الملف فقط. الإذن الموروث من المجلد يُدار من قائمة المجلد.';
@@ -471,7 +452,7 @@ async function loadAdmin() {
   const list=$('#folders-list');list.replaceChildren();for(const f of folders){const item=node('div',undefined,'list-item');item.append(node('strong',f.name),action('تغيير الاسم',()=>{$('#edit-folder-id').value=f.id;$('#edit-folder-name').value=f.name;$('#folder-error').textContent='';$('#folder-dialog').showModal();},'quiet'));list.append(item);}
 }
 function openUser(user) {
-  $('#user-form').reset();$('#edit-user-id').value=user?.id||'';$('#user-name').value=user?.name||'';$('#user-username').value=user?.username||'';$('#user-role').value=user?.role||'user';
+  $('#user-form').reset();$('#edit-user-id').value=user?.id\vert{}\vert{}'';$('#user-name').value=user?.name||'';$('#user-username').value=user?.username\vert{}\vert{}'';$('#user-role').value=user?.role||'user';
   $('#user-job-title').value=user?.jobTitle||'';$('#user-password').required=!user;$('#user-dialog-title').textContent=user?'تعديل بيانات المستخدم':'إنشاء مستخدم';
   $('#password-hint').textContent=user?'اتركها فارغة للإبقاء عليها، أو أدخل كلمة جديدة من ٤ إلى ٢٠ خانة.':'من ٤ إلى ٢٠ خانة، دون اشتراط نوع معين.';
   $('#user-active').checked=user?.active??true;$('#user-quota-gb').value=(user?.quotaBytes??10*1024**3)/1024**3;$('#user-all-folders').checked=user?.allFolders??true;
@@ -526,60 +507,14 @@ $('#backup-inspect').addEventListener('click',async()=>{
   const file=$('#backup-file').files[0];if(!file){$('#backup-status').textContent='اختر ملف النسخة أولًا.';return;}$('#backup-inspect').disabled=true;$('#backup-status').textContent='جارٍ فحص النسخة…';
   try{const info=await window.DemoPortal.inspectBackup(file);pendingBackup=file;$('#restore-summary').textContent=`تحتوي النسخة على ${formatNumber(info.users)} مستخدم و${formatNumber(info.files)} ملف، بمساحة ${sizeLabel(info.bytes)}.`;$('#restore-confirm').checked=false;$('#restore-error').textContent='';$('#restore-dialog').showModal();$('#backup-status').textContent='النسخة صالحة للاستعادة.';}catch(e){if(e.status===401)showLogin(e.message);else $('#backup-status').textContent=e.message;}finally{$('#backup-inspect').disabled=false;}
 });
-$('#restore-form').addEventListener('submit',async event=>{
-  event.preventDefault();if(!pendingBackup||!$('#restore-confirm').checked)return;event.submitter.disabled=true;
-  try{await window.DemoPortal.restoreBackup(pendingBackup);pendingBackup=null;$('#restore-dialog').close();showLogin('تمت استعادة النسخة. سجّل الدخول بأحد حساباتها.');}catch(e){if(e.status===401)showLogin(e.message);else $('#restore-error').textContent=e.message;}finally{event.submitter.disabled=false;}
-});
-$$('.close-dialog').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
+$('#restore-form').addEventListener('submit',async event=>{   event.preventDefault();if(!pendingBackup\vert{}\vert{}!$('#restore-confirm').checked)return;event.submitter.disabled=true;
+  try{await window.DemoPortal.restoreBackup(pendingBackup);pendingBackup=null;$('#restore-dialog').close();showLogin('تمت استعادة النسخة. سجّل الدخول بأحد حساباتها.');}catch(e){if(e.status===401)showLogin(e.message);else $('#restore-error').textContent=e.message;}finally{event.submitter.disabled=false;} }); $$('.close-dialog').forEach(button=>button.addEventListener('click',()=>button.closest('dialog').close()));
 $('#user-dialog').addEventListener('close',()=>$('#user-password').value='');
 $('#password-dialog').addEventListener('close',()=>$('#password-form').reset());
 $('#restore-dialog').addEventListener('close',()=>{pendingBackup=null;});
 
-// Enable credentials only after all login handlers are installed.
-if (typeof window.DemoPortal?.request !== 'function') {
-  $('#login-screen').dataset.introState = 'ready';
-  $('.login-fields').inert = false;
-  $('#startup-recovery').hidden = false;
-  window.PortalStartup?.failed();
-} else {
-$('#login-controls').disabled = false;
-$('#login-form button[type="submit"]').disabled = false;
-window.PortalStartup?.ready();
-
-// Demo accounts and permissions remain local; the upload operation also contacts the server.
-(async()=>{
-  try { await enterPortal(await api('/api/me')); }
-  catch(error) {
-    if(currentUser) showError(error);
-      async function getActualServerStorage() {
-    try {
-        const response = await fetch(SERVER_STORAGE_URL);
-        const data = await response.json();
-        
-        const totalSizeBytes = parseFloat(data.sizeGB) * 1024 * 1024 * 1024;
-        const freeSizeBytes = parseFloat(data.freeGB) * 1024 * 1024 * 1024;
-        const usedSizeBytes = parseFloat(data.usedGB) * 1024 * 1024 * 1024;
-
-        return {
-            total: totalSizeBytes,
-            used: usedSizeBytes,
-            free: freeSizeBytes
-        };
-    } catch (error) {
-        console.error("Error fetching storage info:", error);
-        return {
-            total: 18.53 * 1024 * 1024 * 1024,
-            used: 0,
-            free: 18.53 * 1024 * 1024 * 1024
-        };
-    }
-}
-} catch (error) {
-        showLogin(error.status === 401 ? '' : (error.message || 'تعذر تهيئة التخزين المحلي'));
-    }
-})();
-
-// === توضع الدوال الجديدة هنا في الأسفل خارج كل الأقواس ===
+// --- فحص مساحة السيرفر مع تجاوز تنبيه localtunnel ---
+const SERVER_STORAGE_URL = 'https://ninety-coats-fly.loca.lt/storage';
 
 async function getActualServerStorage() {
     try {
@@ -607,36 +542,25 @@ async function getActualServerStorage() {
             free: 18.53 * 1024 * 1024 * 1024
         };
     }
-}    try {
-        const response = await fetch(SERVER_STORAGE_URL);
-        const data = await response.json();
-        
-        const totalSizeBytes = parseFloat(data.sizeGB) * 1024 * 1024 * 1024;
-        const freeSizeBytes = parseFloat(data.freeGB) * 1024 * 1024 * 1024;
-        const usedSizeBytes = parseFloat(data.usedGB) * 1024 * 1024 * 1024;
-
-        return {
-            total: totalSizeBytes,
-            used: usedSizeBytes,
-            free: freeSizeBytes
-        };
-    } catch (error) {
-        console.error("Error fetching storage info:", error);
-        return {
-            total: 18.53 * 1024 * 1024 * 1024,
-            used: 0,
-            free: 18.53 * 1024 * 1024 * 1024
-        };
-    }
 }
 
-async function canUploadFile(fileSize) {
-    const storage = await getActualServerStorage();
-    if (fileSize > storage.free) {
-        return {
-            allowed: false,
-            message: `المساحة المتبقية بالسيرفر (${(storage.free / (1024**3)).toFixed(2)} GB) غير كافية لرفع هذا الملف.`
-        };
-    }
-    return { allowed: true };
+// Enable credentials only after all login handlers are installed.
+if (typeof window.DemoPortal?.request !== 'function') {
+  $('#login-screen').dataset.introState = 'ready';
+  $('.login-fields').inert = false;
+  $('#startup-recovery').hidden = false;
+  window.PortalStartup?.failed();
+} else {
+$('#login-controls').disabled = false;
+$('#login-form button[type="submit"]').disabled = false;
+window.PortalStartup?.ready();
+
+// Demo accounts and permissions remain local; the upload operation also contacts the server.
+(async()=>{
+  try { await enterPortal(await api('/api/me')); }
+  catch(error) {
+    if(currentUser) showError(error);
+    else showLogin(error.status === 401 ? '' : (error.message || 'تعذّر تهيئة التخزين المحلي.'));
+  }
+})();
 }
