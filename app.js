@@ -1,3 +1,5 @@
+const SERVER_STORAGE_URL = 'https://ninety-coats-fly.loca.lt/storage-info';
+const UPLOAD_URL = 'https://ninety-coats-fly.loca.lt/upload';
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 let currentUser = null, folders = [], files = [], users = [], sharedUsers = [];
@@ -549,7 +551,67 @@ window.PortalStartup?.ready();
   try { await enterPortal(await api('/api/me')); }
   catch(error) {
     if(currentUser) showError(error);
-    else showLogin(error.status === 401 ? '' : (error.message || 'تعذّر تهيئة التخزين المحلي.'));
-  }
+      async function getActualServerStorage() {
+    try {
+        const response = await fetch(SERVER_STORAGE_URL);
+        const data = await response.json();
+        
+        const totalSizeBytes = parseFloat(data.sizeGB) * 1024 * 1024 * 1024;
+        const freeSizeBytes = parseFloat(data.freeGB) * 1024 * 1024 * 1024;
+        const usedSizeBytes = parseFloat(data.usedGB) * 1024 * 1024 * 1024;
+
+        return {
+            total: totalSizeBytes,
+            used: usedSizeBytes,
+            free: freeSizeBytes
+        };
+    } catch (error) {
+        console.error("Error fetching storage info:", error);
+        return {
+            total: 18.53 * 1024 * 1024 * 1024,
+            used: 0,
+            free: 18.53 * 1024 * 1024 * 1024
+        };
+    }
+}
+} catch (error) {
+        showLogin(error.status === 401 ? '' : (error.message || 'تعذر تهيئة التخزين المحلي'));
+    }
 })();
+
+// === توضع الدوال الجديدة هنا في الأسفل خارج كل الأقواس ===
+
+async function getActualServerStorage() {
+    try {
+        const response = await fetch(SERVER_STORAGE_URL);
+        const data = await response.json();
+        
+        const totalSizeBytes = parseFloat(data.sizeGB) * 1024 * 1024 * 1024;
+        const freeSizeBytes = parseFloat(data.freeGB) * 1024 * 1024 * 1024;
+        const usedSizeBytes = parseFloat(data.usedGB) * 1024 * 1024 * 1024;
+
+        return {
+            total: totalSizeBytes,
+            used: usedSizeBytes,
+            free: freeSizeBytes
+        };
+    } catch (error) {
+        console.error("Error fetching storage info:", error);
+        return {
+            total: 18.53 * 1024 * 1024 * 1024,
+            used: 0,
+            free: 18.53 * 1024 * 1024 * 1024
+        };
+    }
+}
+
+async function canUploadFile(fileSize) {
+    const storage = await getActualServerStorage();
+    if (fileSize > storage.free) {
+        return {
+            allowed: false,
+            message: `المساحة المتبقية بالسيرفر (${(storage.free / (1024**3)).toFixed(2)} GB) غير كافية لرفع هذا الملف.`
+        };
+    }
+    return { allowed: true };
 }
