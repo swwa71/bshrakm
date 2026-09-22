@@ -1,0 +1,45 @@
+name: Sync Files to Home Server
+
+on:
+  push:
+    branches:
+      - main # (تأكد أن اسم الفرع الرئيسي هنا يطابق اسم فرعك، مثل main أو master)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+      # --- 1. خطوة فحص المساحة المتاحة قبل الإرسال ---
+      - name: Check Server Disk Space
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            AVAILABLE_MB=$(df -m /home/bn/shared_storage | tail -1 | awk '{print $4}')
+            echo "----------------------------------------------------"
+            echo "المساحة المتاحة على السيرفر: ${AVAILABLE_MB} ميجابايت"
+            echo "----------------------------------------------------"
+            if [ "$AVAILABLE_MB" -lt 500 ]; then
+              echo "خطأ: المساحة المتبقية على السيرفر غير كافية!"
+              exit 1
+            fi
+
+      # --- 2. خطوة رفع الملفات (تعمل فقط عند توفر المساحة) ---
+      - name: Copy files to Server via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "./*"
+          target: "/home/bn/shared_storage"
