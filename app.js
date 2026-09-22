@@ -583,6 +583,31 @@ window.PortalStartup?.ready();
 
 async function getActualServerStorage() {
     try {
+        const response = await fetch(SERVER_STORAGE_URL, {
+            headers: {
+                'bypass-tunnel-reminder': 'true'
+            }
+        });
+        const data = await response.json();
+        
+        const totalSizeBytes = parseFloat(data.sizeGB) * 1024 * 1024 * 1024;
+        const freeSizeBytes = parseFloat(data.freeGB) * 1024 * 1024 * 1024;
+        const usedSizeBytes = parseFloat(data.usedGB) * 1024 * 1024 * 1024;
+
+        return {
+            total: totalSizeBytes,
+            used: usedSizeBytes,
+            free: freeSizeBytes
+        };
+    } catch (error) {
+        console.error("Error fetching storage info:", error);
+        return {
+            total: 18.53 * 1024 * 1024 * 1024,
+            used: 0,
+            free: 18.53 * 1024 * 1024 * 1024
+        };
+    }
+}    try {
         const response = await fetch(SERVER_STORAGE_URL);
         const data = await response.json();
         
