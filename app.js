@@ -6,8 +6,8 @@ let activeUpload = null, currentView = 'files', lastHeartbeat = 0;
 let loginIntroSequence = 0;
 let loginIntroTimer;
 let loginArtworkReady;
-let maxFileSize = 1024 ** 3, auditEntries = [], pendingBackup = null;
-let entrySequence = 0, entryTimer, entryResolve, shareOptions = null;
+let maxFileSize = 5 * 1024 ** 3, auditEntries = [], pendingBackup = null;
+let entrySequence = 0, entryTimer, entryResolve, itemMenu = null, itemMenuTrigger = null;
 const permissionLabels = { upload: 'رفع الملفات', download: 'تنزيل الملفات', rename: 'إعادة تسمية ملفاته', move: 'نقل ملفاته', delete: 'حذف ملفاته إلى السلة', share: 'مشاركة ملفاته' };
 const can = permission => currentUser?.role === 'admin' || !!currentUser?.permissions?.[permission];
 const dateTime = new Intl.DateTimeFormat('ar-SA', { calendar: 'gregory', dateStyle: 'medium', timeStyle: 'short' });
@@ -106,12 +106,12 @@ function positionWelcomeIcon() {
 }
 window.addEventListener('resize', positionWelcomeIcon, { passive: true });
 async function playEntryAnimation(sequence) {
-  $('#welcome-username').textContent = currentUser.username;
+  $('#welcome-name').textContent = currentUser.name;
   $('#welcome-screen').dataset.phase = 'waiting'; $('#welcome-screen').hidden = false;
   $('#login-screen').classList.add('login-leaving');
   if (!await entryPause(650, sequence)) return;
   $('#login-screen').hidden = true;
-  $('#welcome-username').textContent = currentUser.username;
+  $('#welcome-name').textContent = currentUser.name;
   $('#welcome-screen').hidden = false; $('#welcome-screen').dataset.phase = 'greeting';
   if (!await entryPause(1200, sequence)) return;
   positionWelcomeIcon(); $('#welcome-screen').dataset.phase = 'docking';
@@ -139,7 +139,7 @@ function showLogin(message = '') {
   $('#login-error').textContent = message; $('#notice').hidden = true;
   for (const id of ['files-body','users-body','shares-list','folders-list']) $('#' + id).replaceChildren();
   $('#user-password').value = ''; $('#upload-file').value = ''; pendingBackup = null;
-  $('#password-form').reset(); $('#profile-form').reset(); $('#backup-file').value = ''; shareOptions = null; revealLoginControls();
+  $('#password-form').reset(); $('#profile-form').reset(); $('#backup-file').value = ''; closeItemMenu(); revealLoginControls();
 }
 async function logout(message = '', broadcast = true) {
   activeUpload?.abort();
@@ -205,48 +205,103 @@ async function loadFiles() {
   files = data.files; sharingEnabled = data.sharingEnabled; currentUser = me.user; maxFileSize = me.maxFileSize;
   $('#upload-file').accept = me.extensions.map(e => '.' + e).join(',');
   renderProfile();
-  updateUpload(); renderFiles();
+  updateUpload(); renderFolderCards(); renderFiles();
 }
+function searchKey(value) {
+  return String(value).normalize('NFKC').toLocaleLowerCase().replace(/[\u064b-\u065f\u0670\u0640]/g,'').replace(/[أإآ]/g,'ا').replace(/[٠-٩]/g,n=>String(n.charCodeAt(0)-1632));
+}
+function fileMatches(file, query) {
+  return !query || searchKey([file.name,file.owner_name,file.folder_name,sizeLabel(file.size),arabicDate.format(new Date(file.created_at))].join(' ')).includes(query);
+}
+function closeItemMenu(returnFocus=false) {
+  const trigger=itemMenuTrigger;
+  itemMenu?.remove();itemMenu=null;itemMenuTrigger=null;
+  trigger?.setAttribute('aria-expanded','false');
+  if(returnFocus&&trigger?.isConnected)trigger.focus();
+}
+function itemMenuButton(name,options) {
+  const trigger=action('⋯',()=>{
+    if(itemMenuTrigger===trigger){closeItemMenu(true);return;}
+    closeItemMenu();closeProfileMenu();itemMenuTrigger=trigger;
+    itemMenu=node('div',undefined,'item-menu');itemMenu.id='active-item-menu';
+    itemMenu.setAttribute('role','menu');itemMenu.setAttribute('aria-label','إجراءات '+name);
+    trigger.setAttribute('aria-expanded','true');
+    for(const option of options){
+      const button=action(option.label,()=>{closeItemMenu(true);return option.run?.();},option.danger?'menu-danger':'');
+      button.setAttribute('role','menuitem');button.disabled=!!option.disabled;itemMenu.append(button);
+    }
+    document.body.append(itemMenu);
+    const anchor=trigger.getBoundingClientRect(),box=itemMenu.getBoundingClientRect();
+    itemMenu.style.left=Math.max(12,Math.min(anchor.right-box.width,window.innerWidth-box.width-12))+'px';
+    itemMenu.style.top=Math.max(12,anchor.bottom+box.height+8>window.innerHeight?anchor.top-box.height-8:anchor.bottom+8)+'px';
+    itemMenu.querySelector('button:not(:disabled)')?.focus();
+  },'item-more');
+  trigger.setAttribute('aria-label','إجراءات '+name);trigger.setAttribute('aria-haspopup','menu');
+  trigger.setAttribute('aria-expanded','false');trigger.setAttribute('aria-controls','active-item-menu');
+  return trigger;
+}
+document.addEventListener('click',event=>{if(itemMenu&&!itemMenu.contains(event.target)&&!itemMenuTrigger?.contains(event.target))closeItemMenu();});
+document.addEventListener('keydown',event=>{
+  if(!itemMenu)return;
+  if(event.key==='Escape'){event.preventDefault();closeItemMenu(true);return;}
+  if(event.key==='Tab'){closeItemMenu(true);return;}
+  const buttons=[...itemMenu.querySelectorAll('button:not(:disabled)')];
+  if(!buttons.length||!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
+  event.preventDefault();const index=buttons.indexOf(document.activeElement);
+  const next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length;
+  buttons[next].focus();
+});
+window.addEventListener('resize',()=>closeItemMenu());
+document.addEventListener('scroll',event=>{if(itemMenu&&!itemMenu.contains(event.target))closeItemMenu();},true);
 function renderFolderCards() {
-  const list = $('#folder-cards'); list.replaceChildren();
-  for (const folder of folders) {
-    const button = action('', () => { $('#file-folder').value = folder.id; $('#upload-folder').value = folder.id; updateUpload(); renderFolderCards(); renderFiles(); }, 'folder-card');
-    button.append(node('span', '▱'), node('strong', folder.name)); button.setAttribute('aria-pressed', String($('#file-folder').value === folder.id)); list.append(button);
+  closeItemMenu();
+  const list=$('#folder-cards'),query=searchKey($('#file-search').value.trim());list.replaceChildren();
+  const visible=folders.filter(folder=>!query||searchKey(folder.name).includes(query)||files.some(file=>file.folder_id===folder.id&&fileMatches(file,query)));
+  for(const folder of visible){
+    const card=node('div',undefined,'folder-card');card.dataset.folderId=folder.id;
+    const selected=$('#file-folder').value===folder.id;card.classList.toggle('selected',selected);
+    const open=action('',()=>{$('#file-folder').value=folder.id;$('#upload-folder').value=folder.id;updateUpload();renderFolderCards();renderFiles();},'folder-open');
+    open.setAttribute('aria-pressed',String(selected));open.setAttribute('aria-label','فتح مجلد '+folder.name);
+    const icon=node('span',undefined,'folder-symbol');icon.setAttribute('aria-hidden','true');
+    icon.innerHTML='<svg viewBox="0 0 64 52" fill="none"><path d="M5 15V10a6 6 0 0 1 6-6h13l7 7h22a6 6 0 0 1 6 6v24a7 7 0 0 1-7 7H12a7 7 0 0 1-7-7V15Z" fill="currentColor" opacity=".24"/><path d="M5 21a6 6 0 0 1 6-6h42a6 6 0 0 1 6 6v20a7 7 0 0 1-7 7H12a7 7 0 0 1-7-7V21Z" fill="currentColor"/><path d="M15 25h20" stroke="white" stroke-width="3" stroke-linecap="round" opacity=".7"/></svg>';
+    open.append(icon,node('strong',folder.name));
+    card.append(open,itemMenuButton(folder.name,[{label:'أذونات الاطلاع',run:()=>openTargetShare('folder',folder)}]));list.append(card);
   }
-  if (!folders.length) list.append(node('p', 'لم يخصص المسؤول أي مجلد لحسابك بعد.', 'muted'));
+  if(!visible.length)list.append(node('p',folders.length?'لا توجد مجلدات مطابقة للبحث.':'لم يخصص المسؤول أي مجلد لحسابك بعد.','muted folder-empty'));
+}
+async function downloadFile(file) {
+  const result=await api(`/api/files/${file.id}/download`),url=URL.createObjectURL(result.blob);
+  const link=node('a');link.href=url;link.download=result.name;document.body.append(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
 }
 function renderFiles() {
-  const scope = $('#file-scope').value, folder = $('#file-folder').value, search = $('#file-search').value.trim().normalize('NFKC').toLocaleLowerCase();
-  const visible = files.filter(f => (scope === 'all' || (scope === 'own' ? f.owner_id === currentUser.id : f.owner_id !== currentUser.id)) && (!folder || f.folder_id === folder) && (!search || `${f.name} ${f.owner_name} ${f.folder_name}`.normalize('NFKC').toLocaleLowerCase().includes(search)));
-  const body = $('#files-body'); body.replaceChildren();
-  $('#file-count').textContent = `${formatNumber(visible.length)} ملف`;
-  $('#files-empty').hidden = visible.length > 0;
-  $('#empty-title').textContent = scope === 'shared' ? 'لا توجد ملفات مشتركة للعرض' : 'لا توجد ملفات في هذا العرض';
-  $('#empty-description').textContent = scope === 'shared' ? (sharingEnabled ? 'تظهر هنا ملفات المستخدمين الذين منحُوك إذن الاطلاع.' : 'أغلق مسؤول النظام المشاركة بين المستخدمين حاليًا.') : 'اختر مجلدًا وارفع أول ملف لك.';
-  for (const f of visible) {
-    const row = node('tr'); const nameCell = node('td'); const name = node('div', undefined, 'file-name');
-    const mark = node('span','▤','file-mark'); mark.setAttribute('aria-hidden','true'); name.append(mark,node('span',f.name)); nameCell.append(name); row.append(nameCell);
-    row.append(node('td',f.folder_name),node('td',f.owner_id === currentUser.id ? 'أنت' : f.owner_name),node('td',sizeLabel(f.size)),node('td',arabicDate.format(new Date(f.created_at))));
-    const controls = node('td'), actions = node('div', undefined, 'row-actions');
-    const download = action('تنزيل', async () => {
-      const result = await api(`/api/files/${f.id}/download`);
-      const url = URL.createObjectURL(result.blob);
-      const link = node('a'); link.href = url; link.download = result.name;
-      document.body.append(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
-    }, 'download');
-    download.setAttribute('aria-label',`تنزيل ${f.name}`); if (can('download')) actions.append(download);
-    if (f.owner_id === currentUser.id || currentUser.role === 'admin') {
-      if (f.owner_id === currentUser.id) actions.append(action('مشاركة',()=>openFileShare(f),'share-file-button'));
-      if (can('rename') || can('move')) actions.append(action('تعديل',()=>openFile(f)));
-      if (can('delete')) actions.append(action('حذف',()=>deleteFile(f),'text-button delete'));
-    } else actions.append(node('span','اطلاع فقط','muted'));
-    controls.append(actions); row.append(controls); body.append(row);
+  closeItemMenu();
+  const scope=$('#file-scope').value,folder=$('#file-folder').value,query=searchKey($('#file-search').value.trim());
+  const visible=files.filter(f=>(scope==='all'||(scope==='own'?f.owner_id===currentUser.id:f.owner_id!==currentUser.id))&&(!folder||f.folder_id===folder)&&fileMatches(f,query));
+  const body=$('#files-body');body.replaceChildren();
+  $('#file-count').textContent=`${formatNumber(visible.length)} ملف`;
+  $('#search-summary').textContent=query?`${formatNumber(visible.length)} ملف في العرض الحالي · ${formatNumber($('#folder-cards').querySelectorAll('.folder-card').length)} مجلد مطابق`:'ابحث ضمن الملفات والمجلدات المصرح لك بها.';
+  $('#files-empty').hidden=visible.length>0;
+  $('#empty-title').textContent=query?'لا توجد ملفات مطابقة للبحث':scope==='shared'?'لا توجد ملفات مشتركة للعرض':'لا توجد ملفات في هذا العرض';
+  $('#empty-description').textContent=query?'جرّب اسمًا آخر أو غيّر تصفية المجلد ونوع الملفات.':scope==='shared'?(sharingEnabled?'تظهر هنا الملفات التي مُنحت إذن الاطلاع عليها.':'أغلق مسؤول النظام المشاركة بين المستخدمين حاليًا.'):'اختر مجلدًا وارفع أول ملف لك.';
+  for(const f of visible){
+    const row=node('tr'),nameCell=node('td'),name=node('div',undefined,'file-name'),mark=node('span','▤','file-mark');
+    mark.setAttribute('aria-hidden','true');name.append(mark,node('span',f.name));nameCell.append(name);row.append(nameCell);
+    row.append(node('td',f.folder_name),node('td',f.owner_id===currentUser.id?'أنت':f.owner_name),node('td',sizeLabel(f.size)),node('td',arabicDate.format(new Date(f.created_at))));
+    const controls=node('td'),actions=node('div',undefined,'row-actions');
+    if(can('download')){const button=action('تنزيل',()=>downloadFile(f),'download');button.setAttribute('aria-label','تنزيل '+f.name);actions.append(button);}
+    const own=f.owner_id===currentUser.id,editable=own||currentUser.role==='admin';
+    const options=[{label:'أذونات الاطلاع',run:()=>openTargetShare('file',f),disabled:!own}];
+    if(editable&&(can('rename')||can('move')))options.push({label:'تعديل',run:()=>openFile(f)});
+    if(editable&&can('delete'))options.push({label:'حذف',danger:true,run:()=>deleteFile(f)});
+    if(!own)options.push({label:'إدارة الإذن متاحة لصاحب الملف',disabled:true});
+    actions.append(itemMenuButton(f.name,options));controls.append(actions);row.append(controls);body.append(row);
   }
 }
+
 async function showView(view, focus = true) {
   if (!currentUser || !['files','upload','shares','admin','trash','audit'].includes(view) || (['admin','trash','audit'].includes(view) && currentUser.role !== 'admin')) return;
-  currentView = view; $('#notice').hidden = true;
+  closeItemMenu(); closeProfileMenu(); currentView = view; $('#notice').hidden = true;
   for (const name of ['files','upload','shares','admin','trash','audit']) $('#' + name + '-view').hidden = name !== view;
   $$('.nav-item').forEach(b => { const active = b.dataset.view === view; b.classList.toggle('active',active); if (active) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
   if (focus) $('#main-content').focus({ preventScroll: true });
@@ -292,18 +347,18 @@ document.addEventListener('click',event=>{if(!event.target.closest?.('.profile-a
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('#profile-menu').hidden){closeProfileMenu(true);}});
 $('#edit-profile').addEventListener('click',()=>{
   closeProfileMenu(); $('#profile-name').value=currentUser.name;$('#profile-job-title').value=currentUser.jobTitle||'';
-  $('#profile-username').value=currentUser.username;$('#profile-email').value=currentUser.email||'';$('#profile-phone').value=currentUser.phone||'';
+  $('#profile-username').value=currentUser.username;$('#profile-username').readOnly=currentUser.role!=='admin';$('#profile-email').value=currentUser.email||'';$('#profile-phone').value=currentUser.phone||'';
   $('#profile-error').textContent='';$('#profile-dialog').showModal();
 });
 $('#profile-form').addEventListener('submit',async event=>{
   event.preventDefault();event.submitter.disabled=true;
-  try{const result=await api('/api/profile',{method:'PATCH',data:{username:$('#profile-username').value,email:$('#profile-email').value,phone:$('#profile-phone').value}});currentUser=result.user;renderProfile();$('#profile-dialog').close();notice('تم حفظ بياناتك الشخصية.');}
+  try{const result=await api('/api/profile',{method:'PATCH',data:{...(currentUser.role==='admin'?{username:$('#profile-username').value}:{}),email:$('#profile-email').value,phone:$('#profile-phone').value}});currentUser=result.user;renderProfile();$('#profile-dialog').close();notice('تم حفظ بياناتك الشخصية.');}
   catch(error){$('#profile-error').textContent=error.message;}finally{event.submitter.disabled=false;}
 });
 $$('.nav-item').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view).catch(showError)));
 $('#upload-folder').addEventListener('change',updateUpload); $('#upload-file').addEventListener('change',updateUpload);
 $('#file-scope').addEventListener('change',()=>loadFiles().catch(showError)); $('#file-folder').addEventListener('change',()=>{renderFiles();renderFolderCards();});
-$('#file-search').addEventListener('input', renderFiles);
+$('#file-search').addEventListener('input',()=>{renderFolderCards();renderFiles();});
 $('#clear-folder').addEventListener('click',()=>{$('#file-folder').value='';renderFolderCards();renderFiles();});
 $('#refresh-files').addEventListener('click',()=>loadFiles().catch(showError));
 $('#cancel-upload').addEventListener('click',()=>activeUpload?.abort());
@@ -325,59 +380,53 @@ $('#upload-form').addEventListener('submit',async event=>{
 });
 
 function openFile(f) { $('#edit-file-id').value=f.id;$('#edit-file-name').value=f.name;$('#edit-file-name').disabled=!can('rename');fillFolders($('#edit-file-folder'),null);$('#edit-file-folder').value=f.folder_id;$('#edit-file-folder').disabled=!can('move');$('#file-error').textContent='';$('#file-dialog').showModal(); }
-async function openFileShare(file) {
-  $('#share-file-id').value = file.id;
-  $('#file-share-error').textContent = '';
-  await loadFileShare(file.id);
-  if (currentUser) $('#file-share-dialog').showModal();
+async function openTargetShare(kind,target) {
+  $('#share-file-id').value=target.id;$('#share-target-kind').value=kind;$('#file-share-error').textContent='';
+  if(await loadTargetShare() && currentUser)$('#file-share-dialog').showModal();
 }
-async function loadFileShare(fileId) {
-  const data = await api(`/api/files/${fileId}/shares`);
-  $('#file-share-name').textContent = data.file.name;
-  const message = $('#file-share-state');
-  message.textContent = data.sharingEnabled ? 'هذا الإذن يخص الملف المحدد. يجب أن يكون مجلده مصرحًا للمستلم.' : 'المشاركة غير متاحة لحسابك حاليًا. يمكنك إلغاء الأذونات المحفوظة.';
-  message.className = data.sharingEnabled ? 'notice' : 'notice warning';
-  const select = $('#file-share-user'); select.replaceChildren();
-  const placeholder = node('option', 'اختر مستخدمًا'); placeholder.value = ''; select.append(placeholder);
-  for (const u of data.users.filter(u => u.eligible && !data.viewerIds.includes(u.id) && !data.folderViewerIds.includes(u.id))) {
-    const option = node('option', `${u.name} (${u.username})`); option.value = u.id; select.append(option);
-  }
-  select.disabled = !data.sharingEnabled;
-  $('#file-share-submit').disabled = !data.sharingEnabled || select.options.length === 1;
-  const list = $('#file-share-list'); list.replaceChildren();
-  const viewerIds = [...new Set([...data.viewerIds, ...data.folderViewerIds])];
-  $('#file-share-empty').hidden = viewerIds.length > 0;
-  for (const viewerId of viewerIds) {
-    const u = data.users.find(u => u.id === viewerId); if (!u) continue;
-    const item = node('div', undefined, 'list-item'); const label = node('div');
-    label.append(node('strong', u.name), node('small', u.username));
-    const inherited = data.folderViewerIds.includes(viewerId);
-    if (inherited) label.append(node('small', 'لديه إذن لمجلد هذا الملف من صفحة أذونات الاطلاع.'));
+async function loadTargetShare() {
+  const kind=$('#share-target-kind').value,targetId=$('#share-file-id').value;
+  const data=await api('/api/shares'),target=(kind==='folder'?data.folders:data.files).find(item=>item.id===targetId);
+  if(!target)throw new Error('هذا العنصر غير متاح لإدارة أذوناته.');
+  const direct=data.grants.filter(g=>g.kind===kind&&g.targetId===targetId).map(g=>g.viewerId);
+  const inherited=kind==='file'?(await api(`/api/files/${targetId}/shares`)).folderViewerIds:[];
+  if(!currentUser || $('#share-file-id').value!==targetId || $('#share-target-kind').value!==kind)return false;
+  $('#file-share-title').textContent='أذونات الاطلاع · '+(kind==='folder'?'مجلد':'ملف');
+  $('#file-share-name').textContent=target.name;
+  $('#target-share-help').textContent=kind==='folder'?'يشمل الإذن ملفاتك الحالية والجديدة داخل هذا المجلد، ولا يشمل ملفات الآخرين أو المجلدات الأخرى.':'يشمل الإذن هذا الملف فقط. الإذن الموروث من المجلد يُدار من قائمة المجلد.';
+  const message=$('#file-share-state');message.textContent=data.sharingEnabled?'اختر مستخدمًا لمنحه إذن الاطلاع.':'منح الأذونات غير متاح حاليًا. يمكنك إلغاء الأذونات المحفوظة.';
+  message.className=data.sharingEnabled?'notice':'notice warning';
+  const select=$('#file-share-user');select.replaceChildren();const placeholder=node('option','اختر مستخدمًا');placeholder.value='';select.append(placeholder);
+  for(const user of data.users.filter(u=>target.viewerIds.includes(u.id)&&!direct.includes(u.id)&&!inherited.includes(u.id))){const option=node('option',`${user.name} (${user.username})`);option.value=user.id;select.append(option);}
+  select.disabled=!data.sharingEnabled||select.options.length===1;
+  $('#file-share-submit').disabled=select.disabled;
+  if(data.sharingEnabled && select.options.length===1)message.textContent='لا يوجد مستخدم متاح لمنحه إذن جديد لهذا العنصر.';
+  const viewerIds=[...new Set([...direct,...inherited])],list=$('#file-share-list');list.replaceChildren();$('#file-share-empty').hidden=viewerIds.length>0;
+  for(const viewerId of viewerIds){
+    const user=data.users.find(u=>u.id===viewerId);if(!user)continue;
+    const item=node('div',undefined,'list-item'),label=node('div');label.append(node('strong',user.name),node('small',user.username));
+    if(inherited.includes(viewerId))label.append(node('small','إذن موروث من المجلد؛ يمكنك إلغاؤه من قائمة المجلد.'));
     item.append(label);
-    if (data.viewerIds.includes(viewerId)) {
-      item.append(action('إلغاء مشاركة الملف', async () => {
-        try {
-          await api(`/api/files/${fileId}/shares/${viewerId}`, { method: 'DELETE' });
-          await loadFileShare(fileId);
-          $('#file-share-error').textContent = '';
-          $('#file-share-state').textContent = inherited ? 'أُلغي إذن هذا الملف؛ ما زال لدى المستخدم إذن للمجلد. لإيقافه، ألغِ إذن المجلد من صفحة أذونات الاطلاع.' : 'تم إلغاء مشاركة هذا الملف مع المستخدم.';
-        } catch (error) { $('#file-share-error').textContent = error.message; }
-      }, 'quiet'));
-    } else if (inherited) item.append(node('span', 'إذن للمجلد', 'role-badge'));
+    if(direct.includes(viewerId))item.append(action('إلغاء الإذن',async()=>{
+      try{
+        await api(`/api/shares/${kind}/${targetId}/${viewerId}`,{method:'DELETE'});await loadTargetShare();
+        $('#file-share-error').textContent='';$('#file-share-state').textContent=inherited.includes(viewerId)?'أُلغي إذن الملف. ما زال إذن المجلد ساريًا ويمكن إلغاؤه من قائمة المجلد.':'تم إلغاء الإذن.';
+      }catch(error){$('#file-share-error').textContent=error.message;}
+    },'quiet'));
+    else item.append(node('span','إذن للمجلد','role-badge'));
     list.append(item);
   }
+  return true;
 }
-$('#file-share-form').addEventListener('submit', async event => {
-  event.preventDefault(); const fileId = $('#share-file-id').value;
-  const viewerId = $('#file-share-user').value; if (!viewerId) return;
-  $('#file-share-submit').disabled = true; $('#file-share-error').textContent = '';
-  try {
-    await api(`/api/files/${fileId}/shares`, { method: 'POST', data: { viewerId } });
-    await loadFileShare(fileId); $('#file-share-state').textContent = 'تمت مشاركة الملف. يظهر للمستخدم في «ملفات مشتركة معي».';
-  } catch (error) {
-    if (currentUser) { await loadFileShare(fileId).catch(() => {}); $('#file-share-error').textContent = error.message; }
-  }
+$('#file-share-form').addEventListener('submit',async event=>{
+  event.preventDefault();const viewerId=$('#file-share-user').value;if(!viewerId)return;
+  $('#file-share-submit').disabled=true;$('#file-share-error').textContent='';
+  try{
+    await api('/api/shares',{method:'POST',data:{kind:$('#share-target-kind').value,targetId:$('#share-file-id').value,viewerId}});
+    await loadTargetShare();$('#file-share-state').textContent='تم منح إذن الاطلاع.';
+  }catch(error){if(currentUser){await loadTargetShare().catch(()=>{});$('#file-share-error').textContent=error.message;}}
 });
+
 async function deleteFile(file) {
   const dialog=$('#confirm-dialog'); $('#confirm-message').textContent=`هل تريد حذف «${file.name}»؟`; dialog.returnValue=''; dialog.showModal();
   const result = await new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true}));
@@ -387,44 +436,17 @@ async function deleteFile(file) {
 $('#file-edit-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api(`/api/files/${$('#edit-file-id').value}`,{method:'PATCH',data:{name:$('#edit-file-name').value,folderId:$('#edit-file-folder').value}});$('#file-dialog').close();await loadFiles();notice('تم حفظ تعديلات الملف.');}catch(e){$('#file-error').textContent=e.message;}finally{event.submitter.disabled=false;}});
 
 async function loadShares() {
-  shareOptions=await api('/api/shares');sharingEnabled=shareOptions.sharingEnabled;sharedUsers=shareOptions.users;
-  $('#sharing-state').textContent=sharingEnabled?'اختر ملفًا أو مجلدًا، ثم المستخدم الذي ترغب بمنحه إذن الاطلاع.':'منح أذونات جديدة متوقف حاليًا. يمكنك إلغاء الأذونات الموجودة.';
-  $('#sharing-state').className=sharingEnabled?'notice':'notice warning';
-  renderShareTargets();
-  const list=$('#shares-list');list.replaceChildren();$('#shares-empty').hidden=shareOptions.grants.length>0;
-  for(const grant of shareOptions.grants){
-    const viewer=shareOptions.users.find(u=>u.id===grant.viewerId);if(!viewer)continue;
+  const data=await api('/api/shares');
+  $('#sharing-state').textContent=data.sharingEnabled?'لمنح إذن أو إلغائه، استخدم قائمة الثلاث نقاط بجانب الملف أو المجلد في صفحة الملفات.':'منح الأذونات متوقف حاليًا. يمكنك إلغاء إذن محفوظ من قائمة العنصر.';
+  $('#sharing-state').className=data.sharingEnabled?'notice':'notice warning';
+  const list=$('#shares-list');list.replaceChildren();$('#shares-empty').hidden=data.grants.length>0;
+  for(const grant of data.grants){
+    const viewer=data.users.find(u=>u.id===grant.viewerId);if(!viewer)continue;
     const item=node('div',undefined,'list-item'),label=node('div');
-    label.append(node('strong',grant.name),node('small',(grant.kind==='folder'?'مجلد':'ملف')+' · '+viewer.name+' ('+viewer.username+')'));
-    const revoke=action('إلغاء الإذن',async()=>{await api('/api/shares/'+grant.kind+'/'+grant.targetId+'/'+grant.viewerId,{method:'DELETE'});await loadShares();notice('تم إلغاء إذن الاطلاع المحدد.');},'quiet');
-    revoke.setAttribute('aria-label','إلغاء إذن '+viewer.name+' للاطلاع على '+grant.name);item.append(label,revoke);list.append(item);
+    label.append(node('strong',grant.name),node('small',viewer.name+' ('+viewer.username+')'));
+    item.append(label,node('span',grant.kind==='folder'?'مجلد':'ملف','role-badge'));list.append(item);
   }
 }
-function renderShareTargets(){
-  if(!shareOptions)return;
-  const kind=$('#share-kind').value,select=$('#share-target'),previous=select.value,items=kind==='folder'?shareOptions.folders:shareOptions.files;
-  $('#share-target-label').textContent=kind==='folder'?'المجلد':'الملف';
-  $('#share-scope-help').textContent=kind==='folder'?'يشمل الإذن ملفاتك الحالية والجديدة داخل هذا المجلد فقط، ولا يشمل ملفات الآخرين أو المجلدات الأخرى.':'يشمل الإذن الملف المحدد فقط. لا يمنح الاطلاع على بقية ملفات المجلد.';
-  select.replaceChildren();const placeholder=node('option',items.length?(kind==='folder'?'اختر المجلد':'اختر الملف'):(kind==='folder'?'لا توجد مجلدات متاحة':'لا توجد ملفات لديك للمشاركة'));placeholder.value='';select.append(placeholder);
-  for(const item of items){const option=node('option',item.name+(kind==='file'?' · '+item.folder_name:''));option.value=item.id;select.append(option);}
-  if(items.some(item=>item.id===previous))select.value=previous;
-  select.disabled=!sharingEnabled||!items.length;renderShareRecipients();
-}
-function renderShareRecipients(){
-  if(!shareOptions)return;
-  const kind=$('#share-kind').value,targetId=$('#share-target').value,target=(kind==='folder'?shareOptions.folders:shareOptions.files).find(item=>item.id===targetId);
-  const select=$('#share-user'),previous=select.value;select.replaceChildren();const placeholder=node('option','اختر مستخدمًا');placeholder.value='';select.append(placeholder);
-  for(const viewer of shareOptions.users.filter(u=>target?.viewerIds.includes(u.id)&&!shareOptions.grants.some(g=>g.kind===kind&&g.targetId===targetId&&g.viewerId===u.id))){const option=node('option',viewer.name+' ('+viewer.username+')');option.value=viewer.id;select.append(option);}
-  if([...select.options].some(o=>o.value===previous))select.value=previous;
-  select.disabled=!sharingEnabled||!target;$('#share-button').disabled=!sharingEnabled||!target||select.options.length===1;
-}
-$('#share-kind').addEventListener('change',()=>{$('#share-target').value='';renderShareTargets();});
-$('#share-target').addEventListener('change',renderShareRecipients);
-$('#share-form').addEventListener('submit',async event=>{
-  event.preventDefault();event.submitter.disabled=true;
-  try{await api('/api/shares',{method:'POST',data:{kind:$('#share-kind').value,targetId:$('#share-target').value,viewerId:$('#share-user').value}});await loadShares();notice('تم منح إذن الاطلاع للعنصر المحدد.');}
-  catch(error){showError(error);await loadShares().catch(()=>{});}
-});
 
 async function loadAdmin() {
   const [data,settings,stats]=await Promise.all([api('/api/users'),api('/api/settings'),api('/api/dashboard')]); users=data.users;sharingEnabled=settings.sharingEnabled;await loadFolders();
@@ -447,7 +469,7 @@ function openUser(user) {
   $('#user-form').reset();$('#edit-user-id').value=user?.id||'';$('#user-name').value=user?.name||'';$('#user-username').value=user?.username||'';$('#user-role').value=user?.role||'user';
   $('#user-job-title').value=user?.jobTitle||'';$('#user-password').required=!user;$('#user-dialog-title').textContent=user?'تعديل بيانات المستخدم':'إنشاء مستخدم';
   $('#password-hint').textContent=user?'اتركها فارغة للإبقاء عليها، أو أدخل كلمة جديدة من ٤ إلى ٢٠ خانة.':'من ٤ إلى ٢٠ خانة، دون اشتراط نوع معين.';
-  $('#user-active').checked=user?.active??true;$('#user-quota-gb').value=(user?.quotaBytes??2*1024**3)/1024**3;$('#user-all-folders').checked=user?.allFolders??true;
+  $('#user-active').checked=user?.active??true;$('#user-quota-gb').value=(user?.quotaBytes??10*1024**3)/1024**3;$('#user-all-folders').checked=user?.allFolders??true;
   const options=$('#permission-options');options.replaceChildren();
   for(const [key,label] of Object.entries(permissionLabels)){const wrap=node('label',undefined,'check-label'),input=node('input');input.type='checkbox';input.dataset.permission=key;input.checked=user?.permissions?.[key]??true;wrap.append(input,document.createTextNode(label));options.append(wrap);}
   const folderOptions=$('#user-folder-options');folderOptions.replaceChildren();

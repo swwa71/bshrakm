@@ -3,7 +3,7 @@
 (() => {
   'use strict';
   const DB_NAME = 'bushrakom-html-demo-v1', SESSION_KEY = 'bushrakom-html-session-v1';
-  const IDLE_MS = 900000, MAX_FILE_SIZE = 1024 ** 3, LOCK_MS = 900000;
+  const IDLE_MS = 900000, MAX_FILE_SIZE = 5 * 1024 ** 3, LOCK_MS = 900000;
   const UPLOAD_URL = 'http://192.168.91.133:3000/upload';
   const PERMISSIONS = ['upload', 'download', 'rename', 'move', 'delete', 'share'];
   const fail = (status, message) => Object.assign(new Error(message), { status });
@@ -19,6 +19,8 @@
       if (!state.folderShares.some(s => s.ownerId === grant.ownerId && s.viewerId === grant.viewerId && s.folderId === folder.id)) state.folderShares.push({ ...grant, folderId: folder.id });
     }
     state.shares = [];
+    // Upgrade the previous 1 GiB ceiling once; retain smaller administrator limits.
+    if ((state.version || 0) < 4 && state.settings?.maxFileSize === 1024 ** 3) state.settings.maxFileSize = MAX_FILE_SIZE;
     state.settings ||= { maxFileSize: MAX_FILE_SIZE, extensions: [] };
     for (const u of state.users) {
       u.active ??= true; u.permissions = { ...defaults(), ...u.permissions };
@@ -27,7 +29,7 @@
       u.jobTitle ??= u.role === 'admin' ? 'مسؤول النظام' : ''; u.email ??= ''; u.phone ??= '';
     }
     for (const f of state.files) { f.deleted_at ??= null; f.updated_at ??= f.created_at; }
-    state.version = 3; return state;
+    state.version = 4; return state;
   }
   const usedBytes = (state, ownerId) => state.files.filter(f => f.owner_id === ownerId).reduce((n, f) => n + f.size, 0);
   const userView = (u, state) => ({ id: u.id, username: u.username, name: u.name, role: u.role, jobTitle: u.jobTitle, email: u.email, phone: u.phone,
@@ -81,7 +83,7 @@
   async function init() {
     if (!crypto?.subtle || !crypto?.randomUUID || !window.indexedDB) throw fail(503, 'استخدم متصفحًا حديثًا ورابط HTTPS، أو افتح ملف التجربة في Chrome أو Edge.');
     database = await openDatabase(); const existing = await read('state', 'portal');
-    if (existing) { if (existing.version !== 3) await save(migrate(existing)); return; }
+    if (existing) { if (existing.version !== 4) await save(migrate(existing)); return; }
     const users = [];
     for (const [username, name, role, password] of [['admin', 'مسؤول النظام', 'admin', '1234']]) {
       const salt = id(); users.push({ id: id(), username, name, role, revision: 1, salt, passwordHash: await passwordHash(password, salt) });
@@ -117,7 +119,7 @@
     const folderIds = input.folderIds ?? previous?.folderIds ?? [], quotaBytes = input.quotaBytes ?? previous?.quotaBytes ?? 2 * MAX_FILE_SIZE;
     const permissions = input.permissions ?? previous?.permissions ?? defaults();
     if (typeof active !== 'boolean' || typeof allFolders !== 'boolean' || !Array.isArray(folderIds) || folderIds.some(f => !state.folders.some(d => d.id === f))) throw fail(400, 'إعدادات المجلدات أو حالة الحساب غير صحيحة.');
-    if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 0 || quotaBytes > 1024 * MAX_FILE_SIZE) throw fail(400, 'حدد مساحة من صفر إلى ١٠٢٤ جيجابايت.');
+    if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 0 || quotaBytes > 1024 * 1024 ** 3) throw fail(400, 'حدد مساحة من صفر إلى ١٠٢٤ جيجابايت.');
     if (!permissions || PERMISSIONS.some(p => typeof permissions[p] !== 'boolean')) throw fail(400, 'الصلاحيات غير صحيحة.');
     return { username, name, jobTitle: jobTitle.trim(), email: email.trim(), phone: phone.trim(), role: input.role, active, allFolders, folderIds: [...new Set(folderIds)], quotaBytes, permissions: Object.fromEntries(PERMISSIONS.map(p => [p, permissions[p]])) };
   }
@@ -132,7 +134,7 @@
   }
   function validateSettings(data, current) {
     const maxFileSize = data.maxFileSize ?? current.maxFileSize, extensions = data.extensions ?? current.extensions;
-    if (!Number.isSafeInteger(maxFileSize) || maxFileSize < 1 || maxFileSize > MAX_FILE_SIZE) throw fail(400, 'حجم الملف يجب أن يكون أكبر من صفر ولا يتجاوز ١ جيجابايت.');
+    if (!Number.isSafeInteger(maxFileSize) || maxFileSize < 1 || maxFileSize > MAX_FILE_SIZE) throw fail(400, 'حجم الملف يجب أن يكون أكبر من صفر ولا يتجاوز ٥ جيجابايت.');
     if (!Array.isArray(extensions) || extensions.length > 100 || extensions.some(e => typeof e !== 'string' || !/^[a-z0-9]{1,15}$/.test(e))) throw fail(400, 'اكتب الامتدادات مثل pdf و docx دون نقطة.');
     return { maxFileSize, extensions: [...new Set(extensions)] };
   }
@@ -162,7 +164,8 @@
       const { user, data: currentSession } = session(state);
       if (path === '/api/me' && method === 'GET') return { user: userView(user, state), lastActive: currentSession.lastActive, idleMs: IDLE_MS, sharingEnabled: state.sharingEnabled, ...state.settings };
       if (path === '/api/profile' && method === 'PATCH') {
-        if (Object.keys(data).some(k => !['username', 'email', 'phone'].includes(k))) throw fail(403, 'يمكنك تعديل اسم المستخدم والبريد والجوال فقط. الاسم والمسمى الوظيفي يحددهما المسؤول.');
+        const editable = user.role === 'admin' ? ['username', 'email', 'phone'] : ['email', 'phone'];
+        if (Object.keys(data).some(k => !editable.includes(k))) throw fail(403, 'يمكن للمستخدم تعديل البريد والجوال فقط. بيانات الهوية يحددها مسؤول النظام.');
         const updated = validateUser({ ...user, ...data }, user, state);
         if (state.users.some(u => u.id !== user.id && keyOf(u.username) === keyOf(updated.username))) throw fail(409, 'اسم المستخدم مستخدم بالفعل.');
         const changed = user.username !== updated.username;
@@ -319,7 +322,7 @@
     if (!state.folders.some(f => f.id === folderId)) throw fail(400, 'اختر مجلدًا قبل رفع الملف.');
     if (!folderAllowed(user, folderId)) throw fail(403, 'المجلد غير مصرح لك به.');
     if (!(file instanceof Blob)) throw fail(400, 'اختر ملفًا صحيحًا.');
-    if (file.size > state.settings.maxFileSize) throw fail(413, 'حجم الملف يتجاوز الحد الذي حدده المسؤول. الحد المطلق ١ جيجابايت.');
+    if (file.size > MAX_FILE_SIZE || file.size > state.settings.maxFileSize) throw fail(413, 'حجم الملف يتجاوز الحد الذي حدده المسؤول. الحد المطلق ٥ جيجابايت.');
     validateFilename(file.name); validateExtension(state, file.name);
     if (usedBytes(state, user.id) + file.size > user.quotaBytes) throw fail(413, 'لا تكفي المساحة المخصصة لحسابك. تشمل المساحة الملفات الموجودة في السلة.');
     return user;
@@ -385,9 +388,9 @@
   }
   function validateBackupState(s) {
     const invalid = () => { throw fail(400, 'ملف النسخة الاحتياطية غير صالح.'); };
-    if (!s || ![2, 3].includes(s.version) || typeof s.sharingEnabled !== 'boolean' || ['users', 'folders', 'files', 'shares', 'fileShares', 'audit'].some(k => !Array.isArray(s[k]))) invalid();
-    if (s.version === 3 && !Array.isArray(s.folderShares)) invalid();
-    if (s.version === 2) migrate(s);
+    if (!s || ![2, 3, 4].includes(s.version) || typeof s.sharingEnabled !== 'boolean' || ['users', 'folders', 'files', 'shares', 'fileShares', 'audit'].some(k => !Array.isArray(s[k]))) invalid();
+    if (s.version >= 3 && !Array.isArray(s.folderShares)) invalid();
+    if (s.version < 4) migrate(s);
     const unique = list => { const keys = new Set(); for (const x of list) { if (!x || typeof x.id !== 'string' || !x.id || x.id.length > 100 || keys.has(x.id)) invalid(); keys.add(x.id); } return keys; };
     const userIds = unique(s.users), folderIds = unique(s.folders), fileIds = unique(s.files); unique(s.audit);
     for (const f of s.folders) if (typeof f.name !== 'string' || !f.name.trim() || f.name.length > 160) invalid();
