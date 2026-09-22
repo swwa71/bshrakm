@@ -5,6 +5,7 @@
   const DB_NAME = 'bushrakom-html-demo-v1', SESSION_KEY = 'bushrakom-html-session-v1';
   const IDLE_MS = 900000, MAX_FILE_SIZE = 5 * 1024 ** 3, LOCK_MS = 900000;
   const UPLOAD_URL = 'http://192.168.91.133:3000/upload';
+  const STORAGE_INFO_URL = 'http://192.168.91.133:3000/storage-info';
   const PERMISSIONS = ['upload', 'download', 'rename', 'move', 'delete', 'share'];
   const fail = (status, message) => Object.assign(new Error(message), { status });
   const id = () => crypto.randomUUID();
@@ -327,6 +328,32 @@
     if (usedBytes(state, user.id) + file.size > user.quotaBytes) throw fail(413, 'لا تكفي المساحة المخصصة لحسابك. تشمل المساحة الملفات الموجودة في السلة.');
     return user;
   }
+  async function checkServerSpace(file, signal) {
+    const canceled = () => fail(499, 'أُلغي الرفع قبل إرسال الملف.');
+    if (signal?.aborted) throw canceled();
+    let response;
+    try {
+      response = await fetch(STORAGE_INFO_URL, { method: 'GET', signal, cache: 'no-store', mode: 'cors', credentials: 'omit', redirect: 'error' });
+    } catch (error) {
+      if (signal?.aborted || error.name === 'AbortError') throw canceled();
+      throw fail(502, 'تعذّر الاتصال بالسيرفر لتفقد المساحة. لم يُرسل الملف. تحقق من الاتصال والسماح بالوصول للشبكة المحلية ثم حاول مجددًا.');
+    }
+    if (signal?.aborted) throw canceled();
+    if (!response.ok) throw fail(502, `تعذّر تفقد مساحة السيرفر (HTTP ${response.status}). لم يُرسل الملف.`);
+    let data;
+    try { data = await response.json(); }
+    catch {
+      if (signal?.aborted) throw canceled();
+      throw fail(502, 'رد مساحة السيرفر غير صالح. لم يُرسل الملف.');
+    }
+    if (signal?.aborted) throw canceled();
+    const value = data?.freeGB;
+    const numeric = typeof value === 'number' || (typeof value === 'string' && /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim()));
+    const freeGB = numeric ? Number(value) : NaN;
+    const freeBytes = Math.floor(freeGB * 1024 ** 3);
+    if (!data || typeof data !== 'object' || Array.isArray(data) || data.success === false || data.ok === false || data.error || !Number.isSafeInteger(freeBytes) || freeBytes < 0) throw fail(502, 'تعذّر تحديد المساحة الحرة من رد السيرفر. لم يُرسل الملف.');
+    if (file.size > freeBytes) throw fail(507, `المساحة المتبقية بالسيرفر (${freeGB} جيجابايت) غير كافية لرفع هذا الملف. لم يُرسل الملف.`);
+  }
   async function upload(file, folderId, signal) {
     const canceled = () => fail(499, 'أُلغي طلب الرفع. إذا كان الإرسال قد بدأ فتحقق من السيرفر قبل إعادة المحاولة.');
     if (signal?.aborted) throw canceled();
@@ -335,6 +362,13 @@
       return { userId: user.id, revision: user.revision };
     });
     if (signal?.aborted) throw canceled();
+    // Check fresh server capacity without blocking local sessions or admin actions.
+    await checkServerSpace(file, signal);
+    await lock(async () => {
+      const user = validateUpload(await read('state', 'portal'), file, folderId);
+      if (user.id !== ticket.userId || user.revision !== ticket.revision) throw fail(401, 'تغيرت جلسة الدخول أثناء تفقد المساحة. لم يُرسل الملف.');
+    });
+    if (signal?.aborted) throw fail(499, 'أُلغي الرفع قبل إرسال الملف.');
     const formData = new FormData();
     formData.append('file', file, file.name);
     let response;

@@ -106,12 +106,13 @@ function positionWelcomeIcon() {
 }
 window.addEventListener('resize', positionWelcomeIcon, { passive: true });
 async function playEntryAnimation(sequence) {
-  $('#welcome-name').textContent = currentUser.name;
+  const firstName = currentUser.name.trim().split(/\s+/u)[0];
+  $('#welcome-name').textContent = firstName;
   $('#welcome-screen').dataset.phase = 'waiting'; $('#welcome-screen').hidden = false;
   $('#login-screen').classList.add('login-leaving');
   if (!await entryPause(650, sequence)) return;
   $('#login-screen').hidden = true;
-  $('#welcome-name').textContent = currentUser.name;
+  $('#welcome-name').textContent = firstName;
   $('#welcome-screen').hidden = false; $('#welcome-screen').dataset.phase = 'greeting';
   if (!await entryPause(1200, sequence)) return;
   positionWelcomeIcon(); $('#welcome-screen').dataset.phase = 'docking';
@@ -368,7 +369,7 @@ $('#upload-form').addEventListener('submit',async event=>{
   if (!folder || !file) return notice('اختر المجلد والملف أولًا.',true);
   if (file.size > maxFileSize) return notice(`الحد الأقصى للملف الواحد ${sizeLabel(maxFileSize)}.`,true);
   const controller = new AbortController(); activeUpload = controller; updateUpload();
-  $('#upload-progress-wrap').hidden = false; $('#upload-progress').removeAttribute('value'); $('#upload-status').textContent = 'جارٍ رفع الملف إلى السيرفر…';
+  $('#upload-progress-wrap').hidden = false; $('#upload-progress').removeAttribute('value'); $('#upload-status').textContent = 'جارٍ تفقد مساحة السيرفر ثم رفع الملف…';
   try {
     await window.DemoPortal.upload(file, folder, controller.signal);
     if (!currentUser) return;
