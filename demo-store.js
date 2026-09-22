@@ -4,8 +4,18 @@
   'use strict';
   const DB_NAME = 'bushrakom-html-demo-v1', SESSION_KEY = 'bushrakom-html-session-v1';
   const IDLE_MS = 900000, MAX_FILE_SIZE = 5 * 1024 ** 3, LOCK_MS = 900000;
-  const UPLOAD_URL = 'http://192.168.91.133:3000/upload';
-  const STORAGE_INFO_URL = 'http://192.168.91.133:3000/storage-info';
+  // Resolve server settings only for an upload, so an offline server cannot block login.
+  function serverConnection() {
+    const baseUrl = window.BushrakomServer?.baseUrl;
+    if (typeof baseUrl !== 'string' || !baseUrl.trim()) throw fail(503, 'رابط السيرفر غير معدّ. تحقق من ملف server-config.js. لم يُرسل الملف.');
+    let base;
+    try { base = new URL(baseUrl.trim()); }
+    catch { throw fail(400, 'رابط السيرفر غير صحيح في ملف server-config.js.'); }
+    if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) throw fail(400, 'استخدم رابط HTTPS للسيرفر بدون اسم مستخدم أو كلمة مرور أو معاملات إضافية.');
+    base.pathname = base.pathname.replace(/\/+$/, '') + '/';
+    const headers = /(^|\.)loca\.lt$/i.test(base.hostname) ? { 'bypass-tunnel-reminder': 'true' } : undefined;
+    return { storageUrl: new URL('storage-info', base).href, uploadUrl: new URL('upload', base).href, headers };
+  }
   const PERMISSIONS = ['upload', 'download', 'rename', 'move', 'delete', 'share'];
   const fail = (status, message) => Object.assign(new Error(message), { status });
   const id = () => crypto.randomUUID();
@@ -328,18 +338,18 @@
     if (usedBytes(state, user.id) + file.size > user.quotaBytes) throw fail(413, 'لا تكفي المساحة المخصصة لحسابك. تشمل المساحة الملفات الموجودة في السلة.');
     return user;
   }
-  async function checkServerSpace(file, signal) {
+  async function checkServerSpace(file, signal, connection) {
     const canceled = () => fail(499, 'أُلغي الرفع قبل إرسال الملف.');
     if (signal?.aborted) throw canceled();
     let response;
     try {
-      response = await fetch(STORAGE_INFO_URL, { method: 'GET', signal, cache: 'no-store', mode: 'cors', credentials: 'omit', redirect: 'error' });
+      response = await fetch(connection.storageUrl, { method: 'GET', signal, cache: 'no-store', mode: 'cors', credentials: 'omit', redirect: 'error', headers: connection.headers });
     } catch (error) {
       if (signal?.aborted || error.name === 'AbortError') throw canceled();
-      throw fail(502, 'تعذّر الاتصال بالسيرفر لتفقد المساحة. لم يُرسل الملف. تحقق من الاتصال والسماح بالوصول للشبكة المحلية ثم حاول مجددًا.');
+      throw fail(502, 'تعذّر الاتصال بالسيرفر لتفقد المساحة. لم يُرسل الملف. تحقق من تشغيل الرابط العام والسماح باتصال البوابة به.');
     }
     if (signal?.aborted) throw canceled();
-    if (!response.ok) throw fail(502, `تعذّر تفقد مساحة السيرفر (HTTP ${response.status}). لم يُرسل الملف.`);
+    if (!response.ok) throw fail(502, `تعذّر تفقد مساحة السيرفر (HTTP ${response.status}). تحقق من تشغيل السيرفر والرابط العام. لم يُرسل الملف.`);
     let data;
     try { data = await response.json(); }
     catch {
@@ -363,7 +373,8 @@
     });
     if (signal?.aborted) throw canceled();
     // Check fresh server capacity without blocking local sessions or admin actions.
-    await checkServerSpace(file, signal);
+    const connection = serverConnection();
+    await checkServerSpace(file, signal, connection);
     await lock(async () => {
       const user = validateUpload(await read('state', 'portal'), file, folderId);
       if (user.id !== ticket.userId || user.revision !== ticket.revision) throw fail(401, 'تغيرت جلسة الدخول أثناء تفقد المساحة. لم يُرسل الملف.');
@@ -375,10 +386,10 @@
     // Do not hold the local database lock while transferring a large file.
     // Heartbeats, logout and administrator actions must remain responsive.
     try {
-      response = await fetch(UPLOAD_URL, { method: 'POST', body: formData, signal, mode: 'cors', credentials: 'omit', redirect: 'error' });
+      response = await fetch(connection.uploadUrl, { method: 'POST', body: formData, signal, mode: 'cors', credentials: 'omit', redirect: 'error', headers: connection.headers });
     } catch (error) {
       if (signal?.aborted || error.name === 'AbortError') throw canceled();
-      throw fail(502, 'تعذّر تأكيد الرفع. تحقق من اتصالك بشبكة السيرفر والسماح بالوصول للشبكة المحلية. قد يكون السبب إعدادات CORS أو HTTP/HTTPS. راجع السيرفر قبل إعادة المحاولة.');
+      throw fail(502, 'تعذّر تأكيد الرفع. تحقق من تشغيل الرابط العام وإعدادات اتصال البوابة بالسيرفر. راجع السيرفر قبل إعادة المحاولة.');
     }
     if (!response.ok) throw fail(502, `لم يؤكد السيرفر الرفع (HTTP ${response.status}). تحقق من إعداداته وحجم الملف المسموح.`);
     let receipt;
