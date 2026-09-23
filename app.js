@@ -268,7 +268,9 @@ function renderFolderCards() {
     const icon=node('span',undefined,'folder-symbol');icon.setAttribute('aria-hidden','true');
     icon.innerHTML='<svg viewBox="0 0 64 52" fill="none"><path d="M5 15V10a6 6 0 0 1 6-6h13l7 7h22a6 6 0 0 1 6 6v24a7 7 0 0 1-7 7H12a7 7 0 0 1-7-7V15Z" fill="currentColor" opacity=".24"/><path d="M5 21a6 6 0 0 1 6-6h42a6 6 0 0 1 6 6v20a7 7 0 0 1-7 7H12a7 7 0 0 1-7-7V21Z" fill="currentColor"/><path d="M15 25h20" stroke="white" stroke-width="3" stroke-linecap="round" opacity=".7"/></svg>';
     open.append(icon,node('strong',folder.name));
-    card.append(open,itemMenuButton(folder.name,[{label:'أذونات الاطلاع',run:()=>openTargetShare('folder',folder)}]));list.append(card);
+    const folderOptions=[{label:'أذونات الاطلاع',run:()=>openTargetShare('folder',folder)}];
+    if(currentUser?.role==='admin') folderOptions.push({label:'تغيير الاسم',run:()=>openFolderEditor(folder)});
+    card.append(open,itemMenuButton(folder.name,folderOptions));list.append(card);
   }
   if(!visible.length)list.append(node('p',folders.length?'لا توجد مجلدات مطابقة للبحث.':'لم يخصص المسؤول أي مجلد لحسابك بعد.','muted folder-empty'));
 }
@@ -449,7 +451,16 @@ async function loadAdmin() {
     if(u.lockedUntil>Date.now())actions.append(action('فك القفل',async()=>{await api(`/api/users/${u.id}/unlock`,{method:'POST'});await loadAdmin();notice('تم فك القفل المؤقت.');}));
     edit.append(actions);row.append(role,edit);body.append(row);
   }
-  const list=$('#folders-list');list.replaceChildren();for(const f of folders){const item=node('div',undefined,'list-item');item.append(node('strong',f.name),action('تغيير الاسم',()=>{$('#edit-folder-id').value=f.id;$('#edit-folder-name').value=f.name;$('#folder-error').textContent='';$('#folder-dialog').showModal();},'quiet'));list.append(item);}
+  const list=$('#folders-list');list.replaceChildren();for(const f of folders){const item=node('div',undefined,'list-item');item.append(node('strong',f.name),action('تغيير الاسم',()=>openFolderEditor(f),'quiet'));list.append(item);}
+}
+function openFolderEditor(folder) {
+  if (currentUser?.role !== 'admin') return notice('تعديل المجلدات متاح لمسؤول النظام فقط.', true);
+  $('#edit-folder-id').value=folder.id;$('#edit-folder-name').value=folder.name;$('#folder-error').textContent='';$('#folder-dialog').showModal();
+}
+function openCreateFolder() {
+  if (currentUser?.role !== 'admin') return notice('إضافة المجلدات متاحة لمسؤول النظام فقط.', true);
+  $('#create-folder-form').reset();$('#create-folder-error').textContent='';$('#create-folder-dialog').showModal();
+  requestAnimationFrame(()=>$('#create-folder-name')?.focus());
 }
 function openUser(user, focusPermissions = false) {
   $('#user-form').reset();$('#edit-user-id').value=user?.id||'';$('#user-name').value=user?.name||'';$('#user-username').value=user?.username||'';$('#user-role').value=user?.role||'user';
@@ -474,6 +485,8 @@ $('#user-form').addEventListener('submit',async event=>{
 });
 $('#toggle-sharing').addEventListener('click',async event=>{event.currentTarget.disabled=true;try{await api('/api/settings',{method:'PATCH',data:{sharingEnabled:!sharingEnabled}});await loadAdmin();notice(sharingEnabled?'تم فتح المشاركة والاطلاع بين المستخدمين.':'تم إغلاق المشاركة والاطلاع بين المستخدمين.');}catch(e){showError(e);}finally{$('#toggle-sharing').disabled=false;}});
 $('#folder-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api('/api/folders',{method:'POST',data:{name:$('#folder-name').value}});$('#folder-name').value='';await loadAdmin();notice('تم إنشاء المجلد.');}catch(e){showError(e);}finally{event.submitter.disabled=false;}});
+$('#new-folder-files').addEventListener('click',openCreateFolder);
+$('#create-folder-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api('/api/folders',{method:'POST',data:{name:$('#create-folder-name').value}});$('#create-folder-dialog').close();await loadFolders();await loadFiles();renderFolderCards();notice('تم إنشاء المجلد.');}catch(e){$('#create-folder-error').textContent=e.message;}finally{event.submitter.disabled=false;}});
 $('#folder-edit-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api(`/api/folders/${$('#edit-folder-id').value}`,{method:'PATCH',data:{name:$('#edit-folder-name').value}});$('#folder-dialog').close();await loadAdmin();notice('تم تغيير اسم المجلد.');}catch(e){$('#folder-error').textContent=e.message;}finally{event.submitter.disabled=false;}});
 function updateAccessFields(){ $('#user-access-fields').disabled=$('#user-role').value==='admin';$('#user-folder-options').hidden=$('#user-all-folders').checked; }
 $('#user-role').addEventListener('change',updateAccessFields);$('#user-all-folders').addEventListener('change',updateAccessFields);
@@ -483,7 +496,20 @@ $('#settings-form').addEventListener('submit',async event=>{
 });
 async function loadTrash(){
   const data=await api('/api/trash'),body=$('#trash-body');body.replaceChildren();$('#trash-empty').hidden=data.files.length>0;
-  for(const file of data.files){const row=node('tr'),controls=node('td');row.append(node('td',file.name),node('td',file.owner_name),node('td',file.folder_name),node('td',sizeLabel(file.size)),node('td',dateTime.format(new Date(file.deleted_at))));controls.append(action('استعادة',async()=>{await api(`/api/files/${file.id}/restore`,{method:'POST'});await loadTrash();notice('تمت استعادة الملف إلى مجلده الأصلي.');},'quiet'));row.append(controls);body.append(row);}
+  for(const file of data.files){
+    const row=node('tr'),controls=node('td'),buttons=node('div',undefined,'admin-user-actions');
+    row.append(node('td',file.name),node('td',file.owner_name),node('td',file.folder_name),node('td',sizeLabel(file.size)),node('td',dateTime.format(new Date(file.deleted_at))));
+    buttons.append(
+      action('استعادة',async()=>{await api(`/api/files/${file.id}/restore`,{method:'POST'});await loadTrash();notice('تمت استعادة الملف إلى مجلده الأصلي.');},'quiet'),
+      action('حذف نهائي',()=>purgeFile(file),'danger')
+    );
+    controls.append(buttons);row.append(controls);body.append(row);
+  }
+}
+async function purgeFile(file){
+  const dialog=$('#purge-dialog');$('#purge-message').textContent=`سيتم حذف «${file.name}» نهائيًا من البوابة ولا يمكن استعادته.`;dialog.returnValue='';dialog.showModal();
+  const value=await new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true}));if(value!=='confirm')return;
+  await api(`/api/files/${file.id}/purge`,{method:'DELETE'});await loadTrash();notice('تم حذف الملف نهائيًا من سلة المحذوفات.');
 }
 async function loadAudit(){auditEntries=(await api('/api/audit')).entries;renderAudit();}
 function renderAudit(){

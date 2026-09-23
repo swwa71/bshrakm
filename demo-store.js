@@ -82,6 +82,7 @@
       const blobs = tx.objectStore('files');
       if (operation.replace) { blobs.clear(); for (const f of operation.replace) blobs.put(f.blob, f.id); }
       if (operation.blob !== undefined) blobs.put(operation.blob, operation.id);
+      if (operation.deleteIds) for (const fileId of operation.deleteIds) blobs.delete(fileId);
     });
   }
   function passwordLength(value) { if (typeof value !== 'string' || [...value].length < 4 || [...value].length > 20) throw fail(400, 'كلمة المرور يجب أن تكون من ٤ إلى ٢٠ خانة بأي نوع من الأحرف.'); }
@@ -296,12 +297,20 @@
         if (method === 'DELETE' && viewerId) { state.fileShares = state.fileShares.filter(s => !(s.fileId === fileId && s.viewerId === viewerId)); audit(state, user, 'إلغاء مشاركة ملف', file.name); await save(state); return { ok: true }; }
         throw fail(404, 'عملية المشاركة غير متاحة.');
       }
-      const route = /^\/api\/files\/([^/]+)(?:\/(download|restore))?$/.exec(path);
+      const route = /^\/api\/files\/([^/]+)(?:\/(download|restore|purge))?$/.exec(path);
       if (route) {
         const file = state.files.find(f => f.id === route[1]);
         if (route[2] === 'restore' && method === 'POST') {
           requireAdmin(state); if (!file || file.deleted_at === null) throw fail(404, 'الملف غير موجود في سلة المحذوفات.');
           file.deleted_at = null; file.updated_at = Date.now(); audit(state, user, 'استعادة ملف', file.name); await save(state); return { ok: true };
+        }
+        if (route[2] === 'purge' && method === 'DELETE') {
+          requireAdmin(state); if (!file || file.deleted_at === null) throw fail(404, 'الملف غير موجود في سلة المحذوفات.');
+          const fileName=file.name;
+          state.files=state.files.filter(f=>f.id!==file.id);
+          state.fileShares=state.fileShares.filter(s=>s.fileId!==file.id);
+          audit(state,user,'حذف نهائي',fileName);
+          await save(state,{deleteIds:[file.id]});return {ok:true};
         }
         if (!file || !canRead(state, user, file)) throw fail(404, 'الملف غير موجود أو ليس لديك إذن الاطلاع.');
         if (route[2] === 'download' && method === 'GET') {
