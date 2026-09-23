@@ -175,12 +175,12 @@
       const { user, data: currentSession } = session(state);
       if (path === '/api/me' && method === 'GET') return { user: userView(user, state), lastActive: currentSession.lastActive, idleMs: IDLE_MS, sharingEnabled: state.sharingEnabled, ...state.settings };
       if (path === '/api/profile' && method === 'PATCH') {
-        const editable = user.role === 'admin' ? ['username', 'email', 'phone'] : ['email', 'phone'];
+        const editable = user.role === 'admin' ? ['name', 'username', 'email', 'phone'] : ['email', 'phone'];
         if (Object.keys(data).some(k => !editable.includes(k))) throw fail(403, 'يمكن للمستخدم تعديل البريد والجوال فقط. بيانات الهوية يحددها مسؤول النظام.');
         const updated = validateUser({ ...user, ...data }, user, state);
         if (state.users.some(u => u.id !== user.id && keyOf(u.username) === keyOf(updated.username))) throw fail(409, 'اسم المستخدم مستخدم بالفعل.');
         const changed = user.username !== updated.username;
-        user.username = updated.username; user.email = updated.email; user.phone = updated.phone;
+        user.name = updated.name; user.username = updated.username; user.email = updated.email; user.phone = updated.phone;
         if (changed) user.revision++;
         audit(state, user, 'تعديل الملف الشخصي'); await save(state);
         if (changed) { currentSession.revision = user.revision; sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentSession)); }

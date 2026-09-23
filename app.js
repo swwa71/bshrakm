@@ -335,12 +335,12 @@ document.addEventListener('click',event=>{if(!event.target.closest?.('.profile-a
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('#profile-menu').hidden){closeProfileMenu(true);}});
 $('#edit-profile').addEventListener('click',()=>{
   closeProfileMenu(); $('#profile-name').value=currentUser.name;$('#profile-job-title').value=currentUser.jobTitle||'';
-  $('#profile-username').value=currentUser.username;$('#profile-username').readOnly=currentUser.role!=='admin';$('#profile-email').value=currentUser.email||'';$('#profile-phone').value=currentUser.phone||'';
+  $('#profile-name').readOnly=currentUser.role!=='admin';$('#profile-username').value=currentUser.username;$('#profile-username').readOnly=currentUser.role!=='admin';$('#profile-email').value=currentUser.email||'';$('#profile-phone').value=currentUser.phone||'';
   $('#profile-error').textContent='';$('#profile-dialog').showModal();
 });
 $('#profile-form').addEventListener('submit',async event=>{
   event.preventDefault();event.submitter.disabled=true;
-  try{const result=await api('/api/profile',{method:'PATCH',data:{...(currentUser.role==='admin'?{username:$('#profile-username').value}:{}),email:$('#profile-email').value,phone:$('#profile-phone').value}});currentUser=result.user;renderProfile();$('#profile-dialog').close();notice('تم حفظ بياناتك الشخصية.');}
+  try{const result=await api('/api/profile',{method:'PATCH',data:{...(currentUser.role==='admin'?{name:$('#profile-name').value,username:$('#profile-username').value}:{}),email:$('#profile-email').value,phone:$('#profile-phone').value}});currentUser=result.user;renderProfile();$('#profile-dialog').close();notice('تم حفظ بياناتك الشخصية.');}
   catch(error){$('#profile-error').textContent=error.message;}finally{event.submitter.disabled=false;} }); $$('.nav-item').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view).catch(showError)));
 $('#upload-folder').addEventListener('change',updateUpload); $('#upload-file').addEventListener('change',updateUpload);
 $('#file-scope').addEventListener('change',()=>loadFiles().catch(showError)); $('#file-folder').addEventListener('change',()=>{renderFiles();renderFolderCards();});
@@ -445,13 +445,13 @@ async function loadAdmin() {
     const row=node('tr');row.append(node('td',u.name),node('td',u.username),node('td',u.jobTitle||'—'));const role=node('td');
     role.append(node('span',u.role==='admin'?'مسؤول نظام':'مستخدم عادي','role-badge'),node('span',!u.active?'موقوف':u.lockedUntil>Date.now()?'مقفل مؤقتًا':'مفعّل',!u.active||u.lockedUntil>Date.now()?'status-off':'status-on'));
     const edit=node('td'),actions=node('div',undefined,'admin-user-actions');
-    actions.append(action('تعديل',()=>openUser(u)),action(u.active?'إيقاف الحساب':'تفعيل الحساب',async()=>{const result=await api(`/api/users/${u.id}`,{method:'PATCH',data:{...u,active:!u.active}});if(result.relogin)return logout('تم إيقاف حسابك.');await loadAdmin();notice(u.active?'تم إيقاف الحساب وإنهاء جلساته.':'تم تفعيل الحساب.');}),action('إنهاء الجلسات',async()=>{const result=await api(`/api/users/${u.id}/sessions`,{method:'POST'});if(result.relogin)return logout('تم إنهاء جلساتك.');await loadAdmin();notice('تم إنهاء جلسات المستخدم في هذه النسخة.');}));
+    actions.append(action('تعديل',()=>openUser(u)),...(u.role==='user'?[action('الصلاحيات',()=>openUser(u,true),'quiet')]:[]),action(u.active?'إيقاف الحساب':'تفعيل الحساب',async()=>{const result=await api(`/api/users/${u.id}`,{method:'PATCH',data:{...u,active:!u.active}});if(result.relogin)return logout('تم إيقاف حسابك.');await loadAdmin();notice(u.active?'تم إيقاف الحساب وإنهاء جلساته.':'تم تفعيل الحساب.');}),action('إنهاء الجلسات',async()=>{const result=await api(`/api/users/${u.id}/sessions`,{method:'POST'});if(result.relogin)return logout('تم إنهاء جلساتك.');await loadAdmin();notice('تم إنهاء جلسات المستخدم في هذه النسخة.');}));
     if(u.lockedUntil>Date.now())actions.append(action('فك القفل',async()=>{await api(`/api/users/${u.id}/unlock`,{method:'POST'});await loadAdmin();notice('تم فك القفل المؤقت.');}));
     edit.append(actions);row.append(role,edit);body.append(row);
   }
   const list=$('#folders-list');list.replaceChildren();for(const f of folders){const item=node('div',undefined,'list-item');item.append(node('strong',f.name),action('تغيير الاسم',()=>{$('#edit-folder-id').value=f.id;$('#edit-folder-name').value=f.name;$('#folder-error').textContent='';$('#folder-dialog').showModal();},'quiet'));list.append(item);}
 }
-function openUser(user) {
+function openUser(user, focusPermissions = false) {
   $('#user-form').reset();$('#edit-user-id').value=user?.id||'';$('#user-name').value=user?.name||'';$('#user-username').value=user?.username||'';$('#user-role').value=user?.role||'user';
   $('#user-job-title').value=user?.jobTitle||'';$('#user-password').required=!user;$('#user-dialog-title').textContent=user?'تعديل بيانات المستخدم':'إنشاء مستخدم';
   $('#password-hint').textContent=user?'اتركها فارغة للإبقاء عليها، أو أدخل كلمة جديدة من ٤ إلى ٢٠ خانة.':'من ٤ إلى ٢٠ خانة، دون اشتراط نوع معين.';
@@ -462,6 +462,7 @@ function openUser(user) {
   for(const f of folders){const wrap=node('label',undefined,'check-label'),input=node('input');input.type='checkbox';input.value=f.id;input.checked=user?.folderIds?.includes(f.id)??false;wrap.append(input,document.createTextNode(f.name));folderOptions.append(wrap);}
   updateAccessFields();
   $('#user-error').textContent='';$('#user-dialog').showModal();
+  if(focusPermissions && user?.role==='user') requestAnimationFrame(()=>$('#permission-options input')?.focus());
 }
 $('#new-user').addEventListener('click',()=>openUser());
 $('#user-form').addEventListener('submit',async event=>{
