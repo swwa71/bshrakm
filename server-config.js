@@ -1,3 +1,3 @@
 window.BushrakomServer = {
-  baseUrl: "https://violation-customise-pepper-css.trycloudflare.com/storage-info"
+  baseUrl: "https://violation-customise-pepper-css.trycloudflare.com"
 };
