@@ -82,7 +82,6 @@
       const blobs = tx.objectStore('files');
       if (operation.replace) { blobs.clear(); for (const f of operation.replace) blobs.put(f.blob, f.id); }
       if (operation.blob !== undefined) blobs.put(operation.blob, operation.id);
-      if (operation.deleteIds) for (const fileId of operation.deleteIds) blobs.delete(fileId);
     });
   }
   function passwordLength(value) { if (typeof value !== 'string' || [...value].length < 4 || [...value].length > 20) throw fail(400, 'كلمة المرور يجب أن تكون من ٤ إلى ٢٠ خانة بأي نوع من الأحرف.'); }
@@ -176,12 +175,12 @@
       const { user, data: currentSession } = session(state);
       if (path === '/api/me' && method === 'GET') return { user: userView(user, state), lastActive: currentSession.lastActive, idleMs: IDLE_MS, sharingEnabled: state.sharingEnabled, ...state.settings };
       if (path === '/api/profile' && method === 'PATCH') {
-        const editable = user.role === 'admin' ? ['name', 'username', 'email', 'phone'] : ['email', 'phone'];
+        const editable = user.role === 'admin' ? ['username', 'email', 'phone'] : ['email', 'phone'];
         if (Object.keys(data).some(k => !editable.includes(k))) throw fail(403, 'يمكن للمستخدم تعديل البريد والجوال فقط. بيانات الهوية يحددها مسؤول النظام.');
         const updated = validateUser({ ...user, ...data }, user, state);
         if (state.users.some(u => u.id !== user.id && keyOf(u.username) === keyOf(updated.username))) throw fail(409, 'اسم المستخدم مستخدم بالفعل.');
         const changed = user.username !== updated.username;
-        user.name = updated.name; user.username = updated.username; user.email = updated.email; user.phone = updated.phone;
+        user.username = updated.username; user.email = updated.email; user.phone = updated.phone;
         if (changed) user.revision++;
         audit(state, user, 'تعديل الملف الشخصي'); await save(state);
         if (changed) { currentSession.revision = user.revision; sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentSession)); }
@@ -193,15 +192,51 @@
         const salt = id(), hash = await passwordHash(data.password, salt); user.salt = salt; user.passwordHash = hash; user.revision++;
         audit(state, user, 'تغيير كلمة المرور'); await save(state); sessionStorage.removeItem(SESSION_KEY); return { ok: true, relogin: true };
       }
-      if (path === '/api/folders' && method === 'GET') return { folders: state.folders.filter(f => folderAllowed(user, f.id)) };
-      if ((path === '/api/folders' && method === 'POST') || (/^\/api\/folders\/[^/]+$/.test(path) && method === 'PATCH')) {
+      if (path === '/api/folders' && method === 'GET') {
+        const baseUrl = window.BushrakomServer?.baseUrl;
+        if (!baseUrl) throw fail(500, 'رابط السيرفر غير معد');
+
+        const response = await fetch(`${baseUrl}/api/folders`);
+        if (!response.ok) throw fail(response.status, 'تعذر تحميل المجلدات من السيرفر');
+
+        const result = await response.json();
+        return { folders: result.folders || [] };
+      }
+
+      if (path === '/api/folders' && method === 'POST') {
+        requireAdmin(state);
+
+        const name = typeof data.name === 'string' ? data.name.trim() : '';
+        if (!name || [...name].length > 30) throw fail(400, 'اسم المجلد مطلوب وبحد أقصى 30 حرفاً');
+
+        const baseUrl = window.BushrakomServer?.baseUrl;
+        if (!baseUrl) throw fail(500, 'رابط السيرفر غير معد');
+
+        const response = await fetch(`${baseUrl}/api/folders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, parent_id: data.parent_id || null })
+        });
+
+        let result;
+        try { result = await response.json(); }
+        catch (_) { result = {}; }
+
+        if (!response.ok || !result.success) {
+          throw fail(response.status || 500, result.error || 'تعذر إنشاء المجلد');
+        }
+
+        return { folder: result.folder };
+      }
+
+      if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'PATCH') {
         requireAdmin(state); const name = typeof data.name === 'string' ? data.name.trim() : '', folderId = path.split('/').at(-1);
         if (!name || [...name].length > 80) throw fail(400, 'اسم المجلد مطلوب، حتى ٨٠ خانة.');
         if (state.folders.some(f => f.name === name && f.id !== folderId)) throw fail(409, 'اسم المجلد موجود بالفعل.');
-        let folder;
-        if (method === 'POST') { folder = { id: id(), name }; state.folders.push(folder); }
-        else { folder = state.folders.find(f => f.id === folderId); if (!folder) throw fail(404, 'المجلد غير موجود.'); folder.name = name; }
-        audit(state, user, method === 'POST' ? 'إنشاء مجلد' : 'تعديل مجلد', name); await save(state); return folder;
+        const folder = state.folders.find(f => f.id === folderId);
+        if (!folder) throw fail(404, 'المجلد غير موجود.');
+        folder.name = name;
+        audit(state, user, 'تعديل مجلد', name); await save(state); return folder;
       }
       if (path === '/api/users' && method === 'GET') { requireAdmin(state); return { users: state.users.map(u => userView(u, state)) }; }
       const userAction = /^\/api\/users\/([^/]+)\/(sessions|unlock)$/.exec(path);
@@ -297,20 +332,12 @@
         if (method === 'DELETE' && viewerId) { state.fileShares = state.fileShares.filter(s => !(s.fileId === fileId && s.viewerId === viewerId)); audit(state, user, 'إلغاء مشاركة ملف', file.name); await save(state); return { ok: true }; }
         throw fail(404, 'عملية المشاركة غير متاحة.');
       }
-      const route = /^\/api\/files\/([^/]+)(?:\/(download|restore|purge))?$/.exec(path);
+      const route = /^\/api\/files\/([^/]+)(?:\/(download|restore))?$/.exec(path);
       if (route) {
         const file = state.files.find(f => f.id === route[1]);
         if (route[2] === 'restore' && method === 'POST') {
           requireAdmin(state); if (!file || file.deleted_at === null) throw fail(404, 'الملف غير موجود في سلة المحذوفات.');
           file.deleted_at = null; file.updated_at = Date.now(); audit(state, user, 'استعادة ملف', file.name); await save(state); return { ok: true };
-        }
-        if (route[2] === 'purge' && method === 'DELETE') {
-          requireAdmin(state); if (!file || file.deleted_at === null) throw fail(404, 'الملف غير موجود في سلة المحذوفات.');
-          const fileName=file.name;
-          state.files=state.files.filter(f=>f.id!==file.id);
-          state.fileShares=state.fileShares.filter(s=>s.fileId!==file.id);
-          audit(state,user,'حذف نهائي',fileName);
-          await save(state,{deleteIds:[file.id]});return {ok:true};
         }
         if (!file || !canRead(state, user, file)) throw fail(404, 'الملف غير موجود أو ليس لديك إذن الاطلاع.');
         if (route[2] === 'download' && method === 'GET') {
