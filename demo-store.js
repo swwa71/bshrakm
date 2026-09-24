@@ -416,8 +416,7 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
   state.files = state.files.filter(f => f.id !== file.id);
   state.fileShares = state.fileShares.filter(s => s.fileId !== file.id);
 
-  const database = await db();
-
+ 
   await new Promise((resolve, reject) => {
     const tx = database.transaction('files', 'readwrite');
     tx.objectStore('files').delete(file.id);
