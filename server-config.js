@@ -1,4 +1,4 @@
-const SERVER_BASE_URL = "https://appeared-thriller-wrap-acquisition.trycloudflare.com";
+const SERVER_BASE_URL = "https://rover-inspections-same-upgrades.trycloudflare.com";
 
 window.BushrakomServer = {
   baseUrl: SERVER_BASE_URL
