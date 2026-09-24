@@ -193,15 +193,28 @@
         audit(state, user, 'تغيير كلمة المرور'); await save(state); sessionStorage.removeItem(SESSION_KEY); return { ok: true, relogin: true };
       }
       if (path === '/api/folders' && method === 'GET') {
-        const baseUrl = window.BushrakomServer?.baseUrl;
-        if (!baseUrl) throw fail(500, 'رابط السيرفر غير معد');
+  const baseUrl = window.BushrakomServer?.baseUrl;
+  if (!baseUrl) throw fail(500, 'رابط السيرفر غير معد');
 
-        const response = await fetch(`${baseUrl}/api/folders`);
-        if (!response.ok) throw fail(response.status, 'تعذر تحميل المجلدات من السيرفر');
+  const response = await fetch(`${baseUrl}/api/folders`);
+  if (!response.ok) {
+    throw fail(response.status, 'تعذر تحميل المجلدات من السيرفر');
+  }
 
-        const result = await response.json();
-        return { folders: result.folders || [] };
-      }
+  const result = await response.json();
+
+  const folders = (result.folders || []).map(folder => ({
+    id: String(folder.id),
+    name: String(folder.name),
+    parent_id: folder.parent_id ?? null
+  }));
+
+  // مزامنة المجلدات القادمة من السيرفر مع بيانات البوابة المحلية
+  state.folders = folders;
+  await save(state);
+
+  return { folders };
+}
 
       if (path === '/api/folders' && method === 'POST') {
         requireAdmin(state);
