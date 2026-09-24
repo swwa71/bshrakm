@@ -399,13 +399,38 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
         if (method === 'DELETE' && viewerId) { state.fileShares = state.fileShares.filter(s => !(s.fileId === fileId && s.viewerId === viewerId)); audit(state, user, 'إلغاء مشاركة ملف', file.name); await save(state); return { ok: true }; }
         throw fail(404, 'عملية المشاركة غير متاحة.');
       }
-      const route = /^\/api\/files\/([^/]+)(?:\/(download|restore))?$/.exec(path);
+      const route = /^\/api\/files\/([^/]+)(?:\/(download|restore|purge))?$/.exec(path);
       if (route) {
         const file = state.files.find(f => f.id === route[1]);
         if (route[2] === 'restore' && method === 'POST') {
           requireAdmin(state); if (!file || file.deleted_at === null) throw fail(404, 'الملف غير موجود في سلة المحذوفات.');
           file.deleted_at = null; file.updated_at = Date.now(); audit(state, user, 'استعادة ملف', file.name); await save(state); return { ok: true };
         }
+         if (route[2] === 'purge' && method === 'DELETE') {
+  requireAdmin(state);
+
+  if (!file || file.deleted_at === null) {
+    throw fail(404, 'الملف غير موجود في سلة المحذوفات.');
+  }
+
+  state.files = state.files.filter(f => f.id !== file.id);
+  state.fileShares = state.fileShares.filter(s => s.fileId !== file.id);
+
+  const database = await db();
+
+  await new Promise((resolve, reject) => {
+    const tx = database.transaction('files', 'readwrite');
+    tx.objectStore('files').delete(file.id);
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+
+  audit(state, user, 'حذف ملف نهائي', file.name);
+  await save(state);
+
+  return { ok: true };
+}
         if (!file || !canRead(state, user, file)) throw fail(404, 'الملف غير موجود أو ليس لديك إذن الاطلاع.');
         if (route[2] === 'download' && method === 'GET') {
           requirePermission(user, 'download'); const blob = await read('files', file.id); if (!blob) throw fail(404, 'محتوى الملف غير موجود في المتصفح.');
