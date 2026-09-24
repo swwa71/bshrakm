@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '20260925-correspondence-v2';
+  const VERSION = '20260925-correspondence-v3';
   const TYPE_LABELS = { internal: 'داخلي', incoming: 'وارد', outgoing: 'صادر' };
   const STATUS_LABELS = { draft: 'مسودة', pending: 'بانتظار إجراء', returned: 'معادة للاستكمال', approved: 'معتمدة', sent: 'مصدّرة', completed: 'مكتملة', archived: 'مؤرشفة' };
   const PRIORITY_LABELS = { normal: 'عادية', urgent: 'عاجلة', very_urgent: 'عاجلة جدًا' };
@@ -76,10 +76,6 @@
     const section = document.createElement('section');
     section.id = 'correspondence-view'; section.hidden = true;
     section.innerHTML = `
-      <div class="page-heading correspondence-heading">
-        <div><span class="eyebrow">إدارة المعاملات</span><h1>المراسلات الإدارية</h1><p class="muted">إدارة الوارد والصادر، الإحالات، المرفقات وسجل الإجراءات.</p></div>
-        <div class="corr-heading-actions"><button id="corr-org-btn" class="quiet" type="button" hidden>إعداد مسار الإحالة</button><button id="corr-new-btn" class="primary" type="button">+ تسجيل وارد</button></div>
-      </div>
       <div id="corr-alert" class="notice" hidden role="status"></div>
       <div id="corr-stats" class="corr-stat-grid" aria-label="ملخص المراسلات"></div>
       <section class="panel corr-workspace">
@@ -92,6 +88,8 @@
           <input id="corr-search" type="search" placeholder="بحث بالرقم أو الموضوع أو الجهة…">
           <select id="corr-status"><option value="">كل الحالات</option><option value="draft">مسودة</option><option value="pending">بانتظار إجراء</option><option value="returned">معادة للاستكمال</option><option value="approved">معتمدة</option><option value="sent">مصدّرة</option><option value="completed">مكتملة</option><option value="archived">مؤرشفة</option></select>
           <label class="check-label corr-archive-toggle"><input id="corr-include-archived" type="checkbox"> إظهار المؤرشف</label>
+          <button id="corr-new-btn" class="quiet" type="button">+ تسجيل وارد</button>
+          <button id="corr-org-btn" class="quiet" type="button" hidden>إعداد الإحالة</button>
           <button id="corr-refresh" class="quiet" type="button">تحديث</button>
         </div>
         <div class="table-wrap"><table class="corr-table"><thead><tr><th>الرقم</th><th>الموضوع</th><th>الجهة</th><th>الحالة</th><th>المحال إليه</th><th>التاريخ</th><th>آخر تحديث</th><th></th></tr></thead><tbody id="corr-body"></tbody></table></div>
@@ -112,13 +110,27 @@
       </form></dialog>
 
       <dialog id="corr-export-dialog" class="corr-dialog"><form id="corr-export-form">
-        <div class="dialog-heading"><div><h2>تصدير معاملة</h2><p class="muted">التصدير لا يتم بدون رقم الصادر وتاريخ الإرسال.</p></div><button type="button" class="icon-button corr-close" aria-label="إغلاق">×</button></div>
-        <label for="corr-export-source">المعاملة المراد تصديرها</label><select id="corr-export-source" required></select>
-        <div class="corr-form-grid corr-export-grid"><div><label for="corr-export-no">رقم الصادر</label><input id="corr-export-no" maxlength="80" required></div><div><label for="corr-export-date">تاريخ الإرسال</label><input id="corr-export-date" type="date" required></div><div><label for="corr-export-destination">وجهة التصدير</label><select id="corr-export-destination"><option value="outbox">صندوق الصادر</option><option value="archive">تصدير إلى الأرشيف</option></select></div></div>
-        <label for="corr-export-party">الجهة المرسل إليها</label><input id="corr-export-party" maxlength="240" required>
-        <label for="corr-export-note">ملاحظة التصدير <span class="muted">(اختياري)</span></label><textarea id="corr-export-note" rows="3" maxlength="2000"></textarea>
-        <p id="corr-export-error" class="error" role="alert"></p>
-        <div class="dialog-actions"><button type="submit" class="primary">تصدير المعاملة</button><button type="button" class="quiet corr-close">إلغاء</button></div>
+        <div class="dialog-heading"><h2>تصدير معاملة</h2><button type="button" class="icon-button corr-close" aria-label="إغلاق">×</button></div>
+        <section id="corr-export-step-one" class="corr-export-step">
+          <label for="corr-export-source">المعاملة المراد تصديرها</label><select id="corr-export-source" required></select>
+          <label for="corr-export-party">المصدّر إليه</label><input id="corr-export-party" maxlength="240" required>
+          <label for="corr-export-description">وصف الصادر</label><textarea id="corr-export-description" rows="5" maxlength="12000" required></textarea>
+          <p class="muted">بعد اعتماد البيانات يصدر النظام رقم الصادر دون إرسال المعاملة.</p>
+          <div class="dialog-actions"><button id="corr-export-prepare" type="button" class="primary">إصدار رقم الصادر</button><button type="button" class="quiet corr-close">إلغاء</button></div>
+        </section>
+        <section id="corr-export-step-two" class="corr-export-step" hidden>
+          <div class="corr-dispatch-card"><span>رقم الصادر</span><strong id="corr-export-generated-no">—</strong></div>
+          <div class="corr-export-attachments">
+            <label for="corr-export-file">إضافة مرفق</label>
+            <div class="corr-export-file-row"><input id="corr-export-file" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.csv,.zip"><button id="corr-export-upload" type="button" class="quiet">إضافة المرفق</button></div>
+            <div id="corr-export-attachment-list" class="corr-attachments"></div>
+          </div>
+          <label for="corr-export-destination">بعد الإرسال</label><select id="corr-export-destination"><option value="outbox">صندوق الصادر</option><option value="archive">تصدير إلى الأرشيف</option></select>
+          <p class="muted">يُسجل تاريخ الإرسال تلقائيًا عند الضغط على إرسال.</p>
+          <p id="corr-export-error" class="error" role="alert"></p>
+          <div class="dialog-actions"><button id="corr-export-send" type="button" class="primary">إرسال</button><button id="corr-export-cancel" type="button" class="quiet">إلغاء</button></div>
+        </section>
+        <p id="corr-export-step-error" class="error" role="alert"></p>
       </form></dialog>
 
       <dialog id="corr-edit-dialog" class="corr-dialog"><form id="corr-edit-form">
@@ -212,8 +224,23 @@
     finally { button.disabled = false; }
   }
 
-  async function openExport(preselectedId = '') {
+  function resetExportDialog() {
+    state.exportDraftId = null;
+    q('#corr-export-step-one').hidden = false;
+    q('#corr-export-step-two').hidden = true;
+    q('#corr-export-generated-no').textContent = '—';
+    q('#corr-export-party').disabled = false;
+    q('#corr-export-description').disabled = false;
+    q('#corr-export-source').disabled = false;
+    q('#corr-export-file').value = '';
+    q('#corr-export-attachment-list').replaceChildren();
+    q('#corr-export-step-error').textContent = '';
     q('#corr-export-error').textContent = '';
+    q('#corr-export-destination').value = 'outbox';
+  }
+
+  async function openExport(preselectedId = '') {
+    resetExportDialog();
     const select = q('#corr-export-source'); select.replaceChildren();
     const data = await server('/api/correspondence/exportable');
     const items = data.items || [];
@@ -224,26 +251,74 @@
       for (const item of items) { const option = el('option', `${item.reference_no} — ${item.subject}`); option.value = item.id; select.append(option); }
       if (preselectedId && items.some(x => x.id === preselectedId)) select.value = preselectedId;
     }
-    q('#corr-export-date').value = new Date().toISOString().slice(0,10);
-    q('#corr-export-no').value = ''; q('#corr-export-party').value = ''; q('#corr-export-note').value = ''; q('#corr-export-destination').value = 'outbox';
+    q('#corr-export-party').value = '';
+    q('#corr-export-description').value = '';
     q('#corr-export-dialog').showModal();
   }
 
-  async function exportCorrespondence(event) {
-    event.preventDefault(); const button = event.submitter; button.disabled = true; q('#corr-export-error').textContent = '';
+  function renderExportAttachments(attachments = []) {
+    const list = q('#corr-export-attachment-list'); list.replaceChildren();
+    if (!attachments.length) { list.append(el('p','لا توجد مرفقات مضافة.','muted')); return; }
+    for (const attachment of attachments) {
+      const row = el('div', undefined, 'corr-attachment');
+      const info = el('div'); info.append(el('strong', attachment.original_name), el('small', fmtSize(attachment.size), 'muted corr-line'));
+      row.append(info); list.append(row);
+    }
+  }
+
+  async function prepareExport() {
+    const button = q('#corr-export-prepare'); button.disabled = true; q('#corr-export-step-error').textContent = '';
     try {
-      const id = q('#corr-export-source').value; if (!id) throw new Error('لا توجد معاملة جاهزة للتصدير.');
-      const data = await server(`/api/correspondence/${id}/export`, { method: 'POST', data: {
-        dispatch_no: q('#corr-export-no').value,
-        sent_at: q('#corr-export-date').value,
-        external_party: q('#corr-export-party').value,
-        destination: q('#corr-export-destination').value,
-        note: q('#corr-export-note').value
-      }});
-      q('#corr-export-dialog').close(); state.box = 'outbox'; qa('.corr-tabs [data-box]').forEach(b => b.classList.toggle('active', b.dataset.box === 'outbox'));
-      alertMessage(`تم تصدير المعاملة برقم ${data.correspondence.dispatch_no}.`); await loadAll(); await openDetail(data.correspondence.id);
+      const sourceId = q('#corr-export-source').value;
+      const externalParty = q('#corr-export-party').value.trim();
+      const description = q('#corr-export-description').value.trim();
+      if (!sourceId) throw new Error('اختر المعاملة المراد تصديرها.');
+      if (!externalParty) throw new Error('حدد المصدّر إليه.');
+      if (!description) throw new Error('اكتب وصف الصادر.');
+      const data = await server(`/api/correspondence/${sourceId}/export/prepare`, { method: 'POST', data: { external_party: externalParty, description } });
+      state.exportDraftId = data.correspondence.id;
+      q('#corr-export-generated-no').textContent = data.correspondence.dispatch_no;
+      q('#corr-export-source').disabled = true; q('#corr-export-party').disabled = true; q('#corr-export-description').disabled = true;
+      q('#corr-export-step-one').hidden = true; q('#corr-export-step-two').hidden = false;
+      renderExportAttachments(data.correspondence.attachments || []);
+    } catch (error) { q('#corr-export-step-error').textContent = error.message; }
+    finally { button.disabled = false; }
+  }
+
+  async function uploadExportAttachment() {
+    const button = q('#corr-export-upload'); const input = q('#corr-export-file');
+    if (!state.exportDraftId) return;
+    if (!input.files[0]) { q('#corr-export-error').textContent = 'اختر ملفًا لإضافته.'; return; }
+    button.disabled = true; q('#corr-export-error').textContent = '';
+    try {
+      const form = new FormData(); form.append('file', input.files[0]);
+      await server(`/api/correspondence/${state.exportDraftId}/attachments`, { method:'POST', form });
+      const detail = await server(`/api/correspondence/${state.exportDraftId}`);
+      renderExportAttachments(detail.correspondence.attachments || []); input.value = '';
     } catch (error) { q('#corr-export-error').textContent = error.message; }
     finally { button.disabled = false; }
+  }
+
+  async function sendExport() {
+    const button = q('#corr-export-send'); button.disabled = true; q('#corr-export-error').textContent = '';
+    try {
+      if (!state.exportDraftId) throw new Error('لم يتم إصدار رقم الصادر بعد.');
+      const data = await server(`/api/correspondence/${state.exportDraftId}/send`, { method:'POST', data:{ destination:q('#corr-export-destination').value } });
+      q('#corr-export-dialog').close(); state.exportDraftId = null; state.box = 'outbox';
+      qa('.corr-tabs [data-box]').forEach(b => b.classList.toggle('active', b.dataset.box === 'outbox'));
+      alertMessage(`تم إرسال المعاملة برقم ${data.correspondence.dispatch_no}.`); await loadAll();
+      if (data.correspondence.status !== 'archived') await openDetail(data.correspondence.id);
+    } catch (error) { q('#corr-export-error').textContent = error.message; }
+    finally { button.disabled = false; }
+  }
+
+  async function cancelExportDraft() {
+    const draftId = state.exportDraftId;
+    if (draftId) {
+      try { await server(`/api/correspondence/${draftId}/export-draft`, { method:'DELETE' }); }
+      catch (error) { q('#corr-export-error').textContent = error.message; return; }
+    }
+    state.exportDraftId = null; q('#corr-export-dialog').close();
   }
 
   function actionButton(label, actionName, cls = 'quiet') {
@@ -320,10 +395,11 @@
     q('.correspondence-nav')?.addEventListener('click',()=>openView().catch(e=>alertMessage(e.message,true)));
     document.addEventListener('click',event=>{const nav=event.target.closest?.('.nav-item'); if(nav&&!nav.classList.contains('correspondence-nav'))hideView();});
     q('#corr-new-btn').addEventListener('click',()=>{q('#corr-new-error').textContent='';q('#corr-new-dialog').showModal();});
-    q('#corr-new-form').addEventListener('submit',createCorrespondence); q('#corr-export-form').addEventListener('submit',exportCorrespondence); q('#corr-edit-form').addEventListener('submit',saveEdit);
+    q('#corr-new-form').addEventListener('submit',createCorrespondence); q('#corr-export-form').addEventListener('submit',e=>e.preventDefault()); q('#corr-edit-form').addEventListener('submit',saveEdit);
+    q('#corr-export-prepare').addEventListener('click',()=>prepareExport()); q('#corr-export-upload').addEventListener('click',()=>uploadExportAttachment()); q('#corr-export-send').addEventListener('click',()=>sendExport()); q('#corr-export-cancel').addEventListener('click',()=>cancelExportDraft());
     q('#corr-org-btn').addEventListener('click',()=>openOrg().catch(e=>alertMessage(e.message,true))); q('#corr-sync-users').addEventListener('click',syncUsers);
     q('#corr-export-tab').addEventListener('click',()=>openExport().catch(e=>alertMessage(e.message,true)));
-    qa('.corr-close').forEach(b=>b.addEventListener('click',()=>b.closest('dialog')?.close()));
+    qa('.corr-close').forEach(b=>b.addEventListener('click',()=>{ const dialog=b.closest('dialog'); if(dialog?.id==='corr-export-dialog'&&state.exportDraftId){ cancelExportDraft(); } else dialog?.close(); }));
     qa('.corr-tabs [data-box]').forEach(b=>b.addEventListener('click',async()=>{state.box=b.dataset.box;qa('.corr-tabs [data-box]').forEach(x=>x.classList.toggle('active',x===b));await loadList();}));
     q('#corr-refresh').addEventListener('click',()=>loadAll()); q('#corr-status').addEventListener('change',()=>loadList().catch(e=>alertMessage(e.message,true))); q('#corr-include-archived').addEventListener('change',()=>loadList().catch(e=>alertMessage(e.message,true)));
     let timer; q('#corr-search').addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>loadList().catch(e=>alertMessage(e.message,true)),300);});
