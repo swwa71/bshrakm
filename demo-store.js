@@ -242,15 +242,69 @@
         return { folder: result.folder };
       }
 
-      if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'PATCH') {
-        requireAdmin(state); const name = typeof data.name === 'string' ? data.name.trim() : '', folderId = path.split('/').at(-1);
-        if (!name || [...name].length > 80) throw fail(400, 'اسم المجلد مطلوب، حتى ٨٠ خانة.');
-        if (state.folders.some(f => f.name === name && f.id !== folderId)) throw fail(409, 'اسم المجلد موجود بالفعل.');
-        const folder = state.folders.find(f => f.id === folderId);
-        if (!folder) throw fail(404, 'المجلد غير موجود.');
-        folder.name = name;
-        audit(state, user, 'تعديل مجلد', name); await save(state); return folder;
-      }
+     if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'PATCH') {
+  requireAdmin(state);
+
+  const folderId = path.split('/').at(-1);
+  const name = typeof data.name === 'string' ? data.name.trim() : '';
+
+  if (!name || [...name].length > 30) {
+    throw fail(400, 'اسم المجلد مطلوب وبحد أقصى 30 حرفاً');
+  }
+
+  const baseUrl = window.BushrakomServer?.baseUrl;
+  if (!baseUrl) throw fail(500, 'رابط السيرفر غير معد');
+
+  const response = await fetch(`${baseUrl}/api/folders/${folderId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ name })
+  });
+
+  const result = await response.json();
+
+  if (!response.ok || !result.success) {
+    throw fail(response.status || 500, result.error || 'تعذر تعديل المجلد');
+  }
+
+  const folder = state.folders.find(f => f.id === folderId);
+  if (folder) {
+    folder.name = name;
+    await save(state);
+  }
+
+  audit(state, user, 'تعديل مجلد', name);
+
+  return result.folder;
+}
+
+if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
+  requireAdmin(state);
+
+  const folderId = path.split('/').at(-1);
+
+  const baseUrl = window.BushrakomServer?.baseUrl;
+  if (!baseUrl) throw fail(500, 'رابط السيرفر غير معد');
+
+  const response = await fetch(`${baseUrl}/api/folders/${folderId}`, {
+    method: 'DELETE'
+  });
+
+  const result = await response.json();
+
+  if (!response.ok || !result.success) {
+    throw fail(response.status || 500, result.error || 'تعذر حذف المجلد');
+  }
+
+  state.folders = state.folders.filter(f => f.id !== folderId);
+  await save(state);
+
+  audit(state, user, 'حذف مجلد', folderId);
+
+  return { ok: true };
+}
       if (path === '/api/users' && method === 'GET') { requireAdmin(state); return { users: state.users.map(u => userView(u, state)) }; }
       const userAction = /^\/api\/users\/([^/]+)\/(sessions|unlock)$/.exec(path);
       if (userAction && method === 'POST') {
