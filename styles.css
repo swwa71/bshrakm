@@ -397,3 +397,88 @@ body.entry-running #login-screen{
 
 .folder-card .folder-path{display:block;margin-top:4px;font-size:.78rem;color:var(--muted,#71879a);font-weight:400}
 #create-folder-location{margin-top:-4px;margin-bottom:14px}
+
+/* 2026-09-25 v6: ordered, calm post-login sequence.
+   Login form -> centered avatar + first-name greeting -> avatar docks into profile -> portal appears. */
+.login-success-greeting{display:none!important}
+
+#login-screen.login-authenticated .login-panel,
+#login-screen.login-authenticated .login-footer{
+  opacity:0!important;
+  transform:translateY(-8px)!important;
+  transition:opacity .18s ease,transform .22s ease!important;
+  pointer-events:none!important;
+}
+
+/* Keep the portal laid out for target measurement, but completely invisible until docking ends. */
+body.entry-running #portal{
+  opacity:0!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+#portal{
+  transition:opacity .34s ease!important;
+}
+
+/* Welcome layer is the only visible layer after successful authentication. */
+.welcome-screen{
+  z-index:10020!important;
+  background:transparent!important;
+}
+.welcome-screen::before{
+  background:#f4f8fb url('background.png') center/cover no-repeat!important;
+}
+.welcome-copy{
+  top:calc(50% + 34px)!important;
+}
+.welcome-copy p{
+  margin:0!important;
+  font-size:clamp(1.7rem,4vw,2.45rem)!important;
+}
+.welcome-screen[data-phase="greeting"] .welcome-avatar{
+  animation:welcome-avatar-enter-v6 520ms cubic-bezier(.22,1,.36,1) both!important;
+}
+.welcome-screen[data-phase="greeting"] .welcome-copy{
+  animation:welcome-copy-enter-v6 520ms cubic-bezier(.22,1,.36,1) 90ms both!important;
+}
+.welcome-screen[data-phase="docking"] .welcome-avatar{
+  animation:welcome-avatar-dock-v6 950ms cubic-bezier(.22,.72,.2,1) both!important;
+}
+.welcome-screen[data-phase="docking"] .welcome-copy,
+.welcome-screen[data-phase="docking"] .welcome-halo{
+  animation:welcome-fade-v6 360ms ease both!important;
+}
+.welcome-screen[data-phase="docking"]::before{
+  animation:none!important;
+}
+@keyframes welcome-avatar-enter-v6{
+  from{opacity:0;transform:translateY(12px) scale(.94)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes welcome-copy-enter-v6{
+  from{opacity:0;transform:translateY(10px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@keyframes welcome-avatar-dock-v6{
+  from{opacity:1;transform:translate3d(0,0,0) scale(1)}
+  to{opacity:1;transform:translate3d(var(--profile-dx),var(--profile-dy),0) scale(var(--profile-scale))}
+}
+@keyframes welcome-fade-v6{from{opacity:1}to{opacity:0}}
+
+@media(max-width:780px){
+  .welcome-avatar{width:82px;height:82px;left:calc(50% - 41px)}
+  .welcome-avatar svg{width:43px;height:43px}
+}
+@media(prefers-reduced-motion:reduce){
+  #login-screen.login-authenticated .login-panel,
+  #login-screen.login-authenticated .login-footer,
+  .welcome-screen .welcome-avatar,
+  .welcome-screen .welcome-copy,
+  .welcome-screen .welcome-halo{transition:none!important;animation:none!important}
+}
+
+/* Soft hand-off from the animated avatar to the real profile button. */
+.welcome-screen.handoff{pointer-events:none!important}
+.welcome-screen.handoff::before{opacity:0!important;transition:opacity .32s ease!important}
+.welcome-screen.handoff .welcome-avatar{opacity:0!important;transition:opacity .18s ease 60ms!important}
+.welcome-screen.handoff .welcome-copy,.welcome-screen.handoff .welcome-halo{opacity:0!important}

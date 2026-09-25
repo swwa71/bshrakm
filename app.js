@@ -89,9 +89,9 @@ function renderProfile() {
 function cancelEntryAnimation() {
   entrySequence++; clearTimeout(entryTimer);
   if (entryResolve) { entryResolve(false); entryResolve = null; }
-  $('#welcome-screen').hidden = true; $('#welcome-screen').removeAttribute('data-phase');
-  $('#login-success-greeting').hidden = true;
-  $('#login-screen').classList.remove('login-leaving', 'login-exit', 'login-success');
+  $('#welcome-screen').hidden = true; $('#welcome-screen').removeAttribute('data-phase'); $('#welcome-screen').classList.remove('handoff');
+  const legacyGreeting = $('#login-success-greeting'); if (legacyGreeting) legacyGreeting.hidden = true;
+  $('#login-screen').classList.remove('login-leaving', 'login-exit', 'login-success', 'login-authenticated');
   document.body.classList.remove('entry-running');
   $('#portal').inert = false; closeProfileMenu();
 }
@@ -113,24 +113,41 @@ function positionWelcomeIcon() {
 window.addEventListener('resize', positionWelcomeIcon, { passive: true });
 async function playEntryAnimation(sequence) {
   const screen = $('#login-screen');
-  const greeting = $('#login-success-greeting');
+  const stage = $('#welcome-screen');
   const firstName = (currentUser?.name || currentUser?.username || '').trim().split(/\s+/)[0] || 'بك';
-  $('#login-success-name').textContent = firstName;
-  greeting.hidden = false;
-  screen.classList.remove('login-exit', 'login-leaving');
-  screen.classList.add('login-success');
 
-  // Give immediate feedback instead of leaving the submit state looking frozen.
-  if (!await entryPause(360, sequence)) return;
+  $('#welcome-name').textContent = firstName;
 
-  // Move the complete login screen to the left as one piece.
-  screen.classList.add('login-exit');
-  if (!await entryPause(690, sequence)) return;
-
+  // انتهى تسجيل الدخول: أخفِ نموذج الدخول أولاً، ثم اعرض الترحيب وحده.
+  screen.classList.add('login-authenticated');
+  if (!await entryPause(220, sequence)) return;
   screen.hidden = true;
-  greeting.hidden = true;
-  screen.classList.remove('login-exit', 'login-success');
+  screen.classList.remove('login-authenticated');
+
+  stage.hidden = false;
+  stage.dataset.phase = 'greeting';
+
+  // اترك الترحيب واضحاً للحظة قبل بدء انتقال الأيقونة.
+  if (!await entryPause(1150, sequence)) return;
+
+  // احسب موضع أيقونة الملف الشخصي في الواجهة وهي مخفية بصرياً فقط.
+  positionWelcomeIcon();
+  stage.dataset.phase = 'docking';
+
+  // حركة هادئة من منتصف الشاشة إلى مكان الملف الشخصي.
+  if (!await entryPause(950, sequence)) return;
+
+  // عند وصول الأيقونة، أظهر النظام بهدوء ثم سلّمها إلى أيقونة الملف الشخصي الحقيقية.
+  document.body.classList.remove('entry-running');
+  $('#portal').inert = false;
+  stage.classList.add('handoff');
+  if (!await entryPause(320, sequence)) return;
+
+  stage.hidden = true;
+  stage.classList.remove('handoff');
+  stage.removeAttribute('data-phase');
 }
+
 
 async function api(path, options = {}) {
   try { return await window.DemoPortal.request(path, options); }
