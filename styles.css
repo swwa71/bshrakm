@@ -482,3 +482,37 @@ body.entry-running #portal{
 .welcome-screen.handoff::before{opacity:0!important;transition:opacity .32s ease!important}
 .welcome-screen.handoff .welcome-avatar{opacity:0!important;transition:opacity .18s ease 60ms!important}
 .welcome-screen.handoff .welcome-copy,.welcome-screen.handoff .welcome-halo{opacity:0!important}
+
+
+/* v7: folder breadcrumb and clean separation from correspondence view */
+.folder-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 42px;
+  margin: 0 0 14px;
+  padding: 9px 13px;
+  border: 1px solid rgba(31,112,183,.14);
+  border-radius: 14px;
+  background: rgba(255,255,255,.72);
+  box-shadow: 0 8px 22px rgba(23,50,77,.04);
+  direction: rtl;
+}
+.folder-breadcrumb[hidden] { display: none !important; }
+.folder-crumb {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 4px 2px;
+  color: #1f70b7;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.folder-crumb:hover, .folder-crumb:focus-visible { text-decoration: underline; }
+.folder-crumb-separator { color: #9fb2c5; user-select: none; }
+.folder-crumb-current { color: #17324d; font-weight: 800; }
+@media (max-width: 700px) {
+  .folder-breadcrumb { gap: 5px; padding: 8px 10px; border-radius: 12px; }
+}

@@ -50,10 +50,10 @@
     });
   }());
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260925-entry-sequence-v6">
+  <link rel="stylesheet" href="styles.css?v=20260925-folders-v7">
 <script src="server-config.js?v=20260924-tailscale-v1" defer></script>
 <script src="demo-store.js?v=20260925-workflow-v5" defer></script>
-<script src="app.js?v=20260925-entry-sequence-v6" defer></script>
+<script src="app.js?v=20260925-folders-v7" defer></script>
 <link rel="stylesheet" href="correspondence.css?v=20260925-correspondence-v4">
 <script src="correspondence.js?v=20260925-correspondence-v4" defer></script>
 </head>
@@ -115,6 +115,7 @@
         <section id="files-view">
           <div class="page-heading"><div><span class="eyebrow">مساحة الملفات</span><h1>ملفاتك، في مكان واحد</h1><p class="muted">مستنداتك ومجلداتك، مرتبة وقريبة منك.</p></div></div>
           <div class="file-search-panel"><label for="file-search">البحث في الملفات والمجلدات</label><div class="search-field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input type="search" id="file-search" placeholder="ابحث باسم الملف أو المجلد أو بيانات الملف…" aria-describedby="search-summary"></div><p id="search-summary" class="field-hint" role="status">ابحث ضمن الملفات والمجلدات المصرح لك بها.</p></div>
+          <nav id="folder-breadcrumb" class="folder-breadcrumb" aria-label="مسار المجلد" hidden></nav>
           <div class="folder-heading"><h2>مجلداتي المسموحة</h2><div><button id="new-folder-files" class="quiet admin-only" type="button" hidden>+ إضافة مجلد</button> <button id="clear-folder" class="text-button" type="button">عرض جميع المجلدات</button></div></div><div id="folder-cards" class="folder-cards"></div>
 
           <section class="file-panel" aria-labelledby="file-list-title">

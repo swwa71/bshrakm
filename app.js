@@ -225,6 +225,56 @@ function folderDepth(folder) {
   while (current && !seen.has(current.id)) { seen.add(current.id); depth++; current = folderById(current.parent_id); }
   return depth;
 }
+function folderTrail(folder) {
+  const trail = [], seen = new Set();
+  let current = folder;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    trail.unshift(current);
+    current = folderById(current.parent_id);
+  }
+  return trail;
+}
+function hideCorrespondenceView() {
+  const view = $('#correspondence-view');
+  if (view) view.hidden = true;
+  const nav = $('.correspondence-nav');
+  if (nav) { nav.classList.remove('active'); nav.removeAttribute('aria-current'); }
+}
+function renderFolderBreadcrumb() {
+  const breadcrumb = $('#folder-breadcrumb');
+  if (!breadcrumb) return;
+  const current = folderById($('#file-folder').value);
+  breadcrumb.replaceChildren();
+  breadcrumb.hidden = !current;
+  if (!current) return;
+
+  const root = action('الملفات', () => setCurrentFolder(''), 'folder-crumb');
+  root.setAttribute('aria-label', 'العودة إلى جميع المجلدات');
+  breadcrumb.append(root);
+
+  for (const folder of folderTrail(current)) {
+    const separator = node('span', '/', 'folder-crumb-separator');
+    separator.setAttribute('aria-hidden', 'true');
+    breadcrumb.append(separator);
+    if (folder.id === current.id) {
+      const active = node('span', folder.name, 'folder-crumb-current');
+      active.setAttribute('aria-current', 'page');
+      breadcrumb.append(active);
+    } else {
+      breadcrumb.append(action(folder.name, () => setCurrentFolder(folder.id), 'folder-crumb'));
+    }
+  }
+}
+function setCurrentFolder(folderId = '') {
+  hideCorrespondenceView();
+  const value = folders.some(folder => folder.id === folderId) ? folderId : '';
+  $('#file-folder').value = value;
+  $('#upload-folder').value = value;
+  updateUpload();
+  renderFolderCards();
+  renderFiles();
+}
 function fillFolders(select, placeholder, preserve = true) {
   const value = preserve ? select.value : '';
   select.replaceChildren();
@@ -307,6 +357,7 @@ function renderFolderCards() {
   closeItemMenu();
   const list = $('#folder-cards'), query = searchKey($('#file-search').value.trim());
   const currentId = $('#file-folder').value || null;
+  renderFolderBreadcrumb();
   list.replaceChildren();
   let visible;
   if (query) {
@@ -318,9 +369,7 @@ function renderFolderCards() {
   for (const folder of visible) {
     const card = node('div', undefined, 'folder-card'); card.dataset.folderId = folder.id;
     const open = action('', () => {
-      $('#file-folder').value = folder.id;
-      $('#upload-folder').value = folder.id;
-      updateUpload(); renderFolderCards(); renderFiles();
+      setCurrentFolder(folder.id);
     }, 'folder-open');
     open.setAttribute('aria-label', 'فتح مجلد ' + folder.name);
     const icon = node('span', undefined, 'folder-symbol'); icon.setAttribute('aria-hidden', 'true');
@@ -376,6 +425,7 @@ function renderFiles() {
 async function showView(view, focus = true) {
   if (!currentUser || !['files','upload','shares','admin','trash','audit'].includes(view) || (['admin','trash','audit'].includes(view) && currentUser.role !== 'admin')) return;
   closeItemMenu(); closeProfileMenu(); currentView = view; $('#notice').hidden = true;
+  hideCorrespondenceView();
   for (const name of ['files','upload','shares','admin','trash','audit']) $('#' + name + '-view').hidden = name !== view;   $$('.nav-item').forEach(b => { const active = b.dataset.view === view; b.classList.toggle('active',active); if (active) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
   if (focus) $('#main-content').focus({ preventScroll: true });   if (view === 'files' || view === 'upload') { await loadFolders(); await loadFiles(); }   else if (view === 'shares') await loadShares();   else if (view === 'admin') await loadAdmin();   else if (view === 'trash') await loadTrash();   else await loadAudit(); } async function enterPortal(data, animate = false) {
   cancelLoginIntro();
@@ -445,9 +495,9 @@ $('#profile-form').addEventListener('submit',async event=>{
   try{const result=await api('/api/profile',{method:'PATCH',data:{...(currentUser.role==='admin'?{name:$('#profile-name').value,username:$('#profile-username').value}:{}),email:$('#profile-email').value,phone:$('#profile-phone').value}});currentUser=result.user;renderProfile();$('#profile-dialog').close();notice('تم حفظ بياناتك الشخصية.');}
   catch(error){$('#profile-error').textContent=error.message;}finally{event.submitter.disabled=false;} }); $$('.nav-item').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view).catch(showError)));
 $('#upload-folder').addEventListener('change',updateUpload); $('#upload-file').addEventListener('change',updateUpload);
-$('#file-scope').addEventListener('change',()=>loadFiles().catch(showError)); $('#file-folder').addEventListener('change',()=>{renderFiles();renderFolderCards();});
+$('#file-scope').addEventListener('change',()=>loadFiles().catch(showError)); $('#file-folder').addEventListener('change',()=>setCurrentFolder($('#file-folder').value));
 $('#file-search').addEventListener('input',()=>{renderFolderCards();renderFiles();});
-$('#clear-folder').addEventListener('click',()=>{const current=folderById($('#file-folder').value);const parent=current?.parent_id||'';$('#file-folder').value=parent;$('#upload-folder').value=parent;updateUpload();renderFolderCards();renderFiles();});
+$('#clear-folder').addEventListener('click',()=>{const current=folderById($('#file-folder').value);setCurrentFolder(current?.parent_id||'');});
 $('#refresh-files').addEventListener('click',()=>loadFiles().catch(showError));
 $('#cancel-upload').addEventListener('click',()=>activeUpload?.abort());
 $('#upload-form').addEventListener('submit',async event=>{
