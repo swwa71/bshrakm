@@ -285,26 +285,51 @@ button,input:not([type=hidden]),select,.notice{border-radius:14px}dialog{border-
 #startup-recovery button{margin-top:12px;pointer-events:auto}
 @media(prefers-reduced-motion:reduce){.login-screen .login-brand,.login-screen .login-fields,.login-screen .login-footer{animation:none!important;transform:none!important}}
 
-
-/* 2026-09-25: approved background and transparent-looking logo treatment. */
+/* 2026-09-25 final: exact supplied background + standalone transparent logo + restored intro. */
 html,body{background:#f4f8fb!important}
-body::before{background:url('background.png') center center/100% 100% no-repeat fixed!important;opacity:1!important}
+body::before{
+  content:""!important;
+  position:fixed!important;
+  inset:0!important;
+  z-index:-2!important;
+  pointer-events:none!important;
+  background-image:url('background.png')!important;
+  background-position:center center!important;
+  background-size:cover!important;
+  background-repeat:no-repeat!important;
+  background-attachment:fixed!important;
+  opacity:1!important;
+}
 body::after,.login-screen::before{display:none!important}
-.login-brand-slot {
-  display: flex;
-  justify-content: center;
-  align-items: center;
+.login-screen{background:transparent!important}
+
+/* Header/portal logo now uses the standalone transparent logo, not a crop of the background. */
+.brand{
+  background-image:url('logo.png')!important;
+  background-size:contain!important;
+  background-position:center!important;
+  background-repeat:no-repeat!important;
+  background-color:transparent!important;
+  mix-blend-mode:normal!important;
 }
 
-.login-logo {
-  display: block;
-  width: 220px;
-  max-width: 60vw;
-  height: auto;
-  object-fit: contain;
-  background: transparent;
+/* Login logo keeps the original intro animation through the login-brand class. */
+.login-brand-slot{
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  background:transparent!important;
 }
-.login-screen{background:transparent!important}
-.brand{background-color:transparent!important;mix-blend-mode:multiply}
-.login-brand-slot{background:transparent!important}
-@media(max-width:780px){body::before{background-attachment:scroll!important}.login-screen{background:transparent!important}}
+.login-logo{
+  display:block;
+  width:100%!important;
+  height:100%!important;
+  max-width:none!important;
+  object-fit:contain;
+  background:transparent!important;
+}
+
+@media(max-width:780px){
+  body::before{background-attachment:scroll!important}
+  .login-screen{background:transparent!important}
+}

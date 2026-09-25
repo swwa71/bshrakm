@@ -42,12 +42,14 @@ function positionLoginIntro() {
 }
 function prepareLoginArtwork() {
   if (!loginArtworkReady) {
-    const picture = new Image(); picture.src = 'background.png';
-    const imageReady = picture.decode ? picture.decode().catch(() => {}) : Promise.resolve();
+    const backgroundPicture = new Image(); backgroundPicture.src = 'background.png';
+    const logoPicture = new Image(); logoPicture.src = 'logo.png';
+    const backgroundReady = backgroundPicture.decode ? backgroundPicture.decode().catch(() => {}) : Promise.resolve();
+    const logoReady = logoPicture.decode ? logoPicture.decode().catch(() => {}) : Promise.resolve();
     const fontsReady = document.fonts ? document.fonts.ready.catch(() => {}) : Promise.resolve();
     loginArtworkReady = new Promise(resolve => {
       const fallback = setTimeout(resolve, 2000);
-      Promise.all([imageReady, fontsReady]).then(() => { clearTimeout(fallback); resolve(); });
+      Promise.all([backgroundReady, logoReady, fontsReady]).then(() => { clearTimeout(fallback); resolve(); });
     });
   }
   return loginArtworkReady;
