@@ -90,7 +90,8 @@ function cancelEntryAnimation() {
   entrySequence++; clearTimeout(entryTimer);
   if (entryResolve) { entryResolve(false); entryResolve = null; }
   $('#welcome-screen').hidden = true; $('#welcome-screen').removeAttribute('data-phase');
-  $('#login-screen').classList.remove('login-leaving'); document.body.classList.remove('entry-running');
+  $('#login-screen').classList.remove('login-leaving', 'login-exit');
+  document.body.classList.remove('entry-running');
   $('#portal').inert = false; closeProfileMenu();
 }
 function entryPause(ms, sequence) {
@@ -110,18 +111,18 @@ function positionWelcomeIcon() {
 }
 window.addEventListener('resize', positionWelcomeIcon, { passive: true });
 async function playEntryAnimation(sequence) {
-  const firstName = currentUser.name.trim().split(/\s+/u)[0];
-  $('#welcome-name').textContent = firstName;
-  $('#welcome-screen').dataset.phase = 'waiting'; $('#welcome-screen').hidden = false;
-  $('#login-screen').classList.add('login-leaving');
-  if (!await entryPause(650, sequence)) return;
-  $('#login-screen').hidden = true;
-  $('#welcome-name').textContent = firstName;
-  $('#welcome-screen').hidden = false; $('#welcome-screen').dataset.phase = 'greeting';
-  if (!await entryPause(1600, sequence)) return;
-  positionWelcomeIcon(); $('#welcome-screen').dataset.phase = 'docking';
-  if (!await entryPause(1150, sequence)) return;
-  cancelEntryAnimation(); $('#main-content').focus({ preventScroll: true });
+  const screen = $('#login-screen');
+  // Keep the portal fully hidden while the entire login screen exits to the left.
+  $('#welcome-screen').hidden = true;
+  screen.classList.remove('login-leaving');
+  screen.classList.add('login-exit');
+  if (!await entryPause(820, sequence)) return;
+  screen.hidden = true;
+  screen.classList.remove('login-exit');
+  document.body.classList.remove('entry-running');
+  $('#portal').inert = false;
+  if (!await entryPause(360, sequence)) return;
+  $('#main-content').focus({ preventScroll: true });
 }
 
 async function api(path, options = {}) {
