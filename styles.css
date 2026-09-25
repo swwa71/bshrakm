@@ -290,6 +290,20 @@ button,input:not([type=hidden]),select,.notice{border-radius:14px}dialog{border-
 html,body{background:#f4f8fb!important}
 body::before{background:url('background.png') center center/100% 100% no-repeat fixed!important;opacity:1!important}
 body::after,.login-screen::before{display:none!important}
+.login-brand-slot {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.login-logo {
+  display: block;
+  width: 220px;
+  max-width: 60vw;
+  height: auto;
+  object-fit: contain;
+  background: transparent;
+}
 .login-screen{background:transparent!important}
 .brand{background-color:transparent!important;mix-blend-mode:multiply}
 .login-brand-slot{background:transparent!important}
