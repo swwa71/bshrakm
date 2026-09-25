@@ -284,3 +284,13 @@ button,input:not([type=hidden]),select,.notice{border-radius:14px}dialog{border-
 #startup-recovery{margin:18px 0 0;line-height:1.8}
 #startup-recovery button{margin-top:12px;pointer-events:auto}
 @media(prefers-reduced-motion:reduce){.login-screen .login-brand,.login-screen .login-fields,.login-screen .login-footer{animation:none!important;transform:none!important}}
+
+
+/* 2026-09-25: approved background and transparent-looking logo treatment. */
+html,body{background:#f4f8fb!important}
+body::before{background:url('background.png') center center/100% 100% no-repeat fixed!important;opacity:1!important}
+body::after,.login-screen::before{display:none!important}
+.login-screen{background:transparent!important}
+.brand{background-color:transparent!important;mix-blend-mode:multiply}
+.login-brand-slot{background:transparent!important}
+@media(max-width:780px){body::before{background-attachment:scroll!important}.login-screen{background:transparent!important}}

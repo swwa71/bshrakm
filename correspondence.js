@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '20260925-correspondence-v3';
+  const VERSION = '20260925-correspondence-v4';
   const TYPE_LABELS = { internal: 'داخلي', incoming: 'وارد', outgoing: 'صادر' };
   const STATUS_LABELS = { draft: 'مسودة', pending: 'بانتظار إجراء', returned: 'معادة للاستكمال', approved: 'معتمدة', sent: 'مصدّرة', completed: 'مكتملة', archived: 'مؤرشفة' };
   const PRIORITY_LABELS = { normal: 'عادية', urgent: 'عاجلة', very_urgent: 'عاجلة جدًا' };
@@ -10,10 +10,10 @@
     created: 'إنشاء المعاملة', route_up: 'إحالة للأعلى', approve_and_route: 'اعتماد وإحالة للأعلى',
     resubmit: 'استكمال وإعادة الرفع', return_down: 'إعادة للمرسل', approve_final: 'اعتماد نهائي',
     complete: 'إغلاق الإجراء', mark_sent: 'تأكيد الإرسال', archive: 'أرشفة', comment: 'ملاحظة',
-    edited: 'تعديل بيانات المعاملة', attachment_added: 'إضافة مرفق', exported: 'تصدير المعاملة'
+    edited: 'تعديل بيانات المعاملة', attachment_added: 'إضافة مرفق', attachment_removed: 'حذف مرفق', export_prepared: 'إصدار رقم الصادر', exported: 'إرسال الصادر نهائيًا'
   };
 
-  const state = { me: null, orgMe: null, items: [], selected: null, box: 'inbox', loading: false };
+  const state = { me: null, orgMe: null, items: [], selected: null, box: 'inbox', loading: false, exportDraftId: null };
   const q = (s, root = document) => root.querySelector(s);
   const qa = (s, root = document) => [...root.querySelectorAll(s)];
   const el = (tag, text, cls) => { const n = document.createElement(tag); if (text !== undefined) n.textContent = text; if (cls) n.className = cls; return n; };
@@ -112,23 +112,27 @@
       <dialog id="corr-export-dialog" class="corr-dialog"><form id="corr-export-form">
         <div class="dialog-heading"><h2>تصدير معاملة</h2><button type="button" class="icon-button corr-close" aria-label="إغلاق">×</button></div>
         <section id="corr-export-step-one" class="corr-export-step">
-          <label for="corr-export-source">المعاملة المراد تصديرها</label><select id="corr-export-source" required></select>
           <label for="corr-export-party">المصدّر إليه</label><input id="corr-export-party" maxlength="240" required>
           <label for="corr-export-description">وصف الصادر</label><textarea id="corr-export-description" rows="5" maxlength="12000" required></textarea>
-          <p class="muted">بعد اعتماد البيانات يصدر النظام رقم الصادر دون إرسال المعاملة.</p>
+          <p class="muted">عند إصدار الرقم تُحفظ المعاملة مباشرة في صندوق الصادر بحالة قيد الاستكمال.</p>
           <div class="dialog-actions"><button id="corr-export-prepare" type="button" class="primary">إصدار رقم الصادر</button><button type="button" class="quiet corr-close">إلغاء</button></div>
         </section>
         <section id="corr-export-step-two" class="corr-export-step" hidden>
-          <div class="corr-dispatch-card"><span>رقم الصادر</span><strong id="corr-export-generated-no">—</strong></div>
+          <div class="corr-dispatch-card"><div><span>رقم الصادر</span><strong id="corr-export-generated-no">—</strong></div><div><span>تاريخ إصدار الرقم</span><strong id="corr-export-issued-at">—</strong></div></div>
+          <div class="corr-export-draft-fields">
+            <label for="corr-export-party-edit">المصدّر إليه</label><input id="corr-export-party-edit" maxlength="240" required>
+            <label for="corr-export-description-edit">وصف الصادر</label><textarea id="corr-export-description-edit" rows="5" maxlength="12000" required></textarea>
+            <button id="corr-export-save" type="button" class="quiet">حفظ التعديلات</button>
+          </div>
           <div class="corr-export-attachments">
-            <label for="corr-export-file">إضافة مرفق</label>
+            <label for="corr-export-file">إرفاق المعاملة / إضافة مرفق</label>
             <div class="corr-export-file-row"><input id="corr-export-file" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.csv,.zip"><button id="corr-export-upload" type="button" class="quiet">إضافة المرفق</button></div>
             <div id="corr-export-attachment-list" class="corr-attachments"></div>
           </div>
-          <label for="corr-export-destination">بعد الإرسال</label><select id="corr-export-destination"><option value="outbox">صندوق الصادر</option><option value="archive">تصدير إلى الأرشيف</option></select>
-          <p class="muted">يُسجل تاريخ الإرسال تلقائيًا عند الضغط على إرسال.</p>
+          <label for="corr-export-destination">بعد الإرسال النهائي</label><select id="corr-export-destination"><option value="outbox">صندوق الصادر</option><option value="archive">تصدير إلى الأرشيف</option></select>
+          <p class="muted">يمكنك إغلاق النافذة والعودة لاحقًا من صندوق الصادر. رقم الصادر يبقى محفوظًا ولا يتغير.</p>
           <p id="corr-export-error" class="error" role="alert"></p>
-          <div class="dialog-actions"><button id="corr-export-send" type="button" class="primary">إرسال</button><button id="corr-export-cancel" type="button" class="quiet">إلغاء</button></div>
+          <div class="dialog-actions"><button id="corr-export-send" type="button" class="primary">إرسال نهائي</button><button id="corr-export-close-draft" type="button" class="quiet">إغلاق وحفظ</button></div>
         </section>
         <p id="corr-export-step-error" class="error" role="alert"></p>
       </form></dialog>
@@ -166,12 +170,15 @@
     const wrap = q('#corr-stats'); wrap.replaceChildren();
     const cards = [
       ['صندوق الوارد', counts.inbox || 0, 'المعاملات الواردة المتاحة لك'],
-      ['صندوق الصادر', counts.outbox || 0, 'المعاملات التي تم تصديرها']
+      ['صندوق الصادر', counts.outbox || 0, 'الصادر المرسل وقيد الاستكمال']
     ];
     for (const [title, value, hint] of cards) { const card = el('div', undefined, 'corr-stat-card'); card.append(el('span', title), el('strong', new Intl.NumberFormat('ar-SA').format(value)), el('small', hint)); wrap.append(card); }
   }
 
-  function statusBadge(status) { return el('span', STATUS_LABELS[status] || status, `corr-badge status-${status}`); }
+  function statusBadge(status, item = null) {
+    const label = item?.type === 'outgoing' && status === 'draft' ? 'قيد الاستكمال' : (STATUS_LABELS[status] || status);
+    return el('span', label, `corr-badge status-${status}`);
+  }
 
   async function loadAll() {
     if (state.loading) return;
@@ -202,9 +209,9 @@
       const ref = el('td'); ref.append(el('strong', number, 'corr-ref'));
       const subject = el('td'); subject.append(el('strong', item.subject));
       const party = el('td', item.external_party || '—');
-      const status = el('td'); status.append(statusBadge(item.status));
+      const status = el('td'); status.append(statusBadge(item.status, item));
       const assignee = el('td', item.current_assignee_name || item.current_assignee);
-      const date = el('td', fmtDate(item.type === 'outgoing' ? item.sent_at : item.created_at));
+      const date = el('td', fmtDate(item.type === 'outgoing' ? (item.sent_at || item.dispatch_issued_at || item.created_at) : item.created_at));
       const updated = el('td', fmtDate(item.updated_at));
       const actions = el('td'); const open = el('button', 'فتح', 'text-button'); open.type = 'button'; open.addEventListener('click', () => openDetail(item.id).catch(e => alertMessage(e.message,true))); actions.append(open);
       row.append(ref, subject, party, status, assignee, date, updated, actions); body.append(row);
@@ -229,9 +236,11 @@
     q('#corr-export-step-one').hidden = false;
     q('#corr-export-step-two').hidden = true;
     q('#corr-export-generated-no').textContent = '—';
-    q('#corr-export-party').disabled = false;
-    q('#corr-export-description').disabled = false;
-    q('#corr-export-source').disabled = false;
+    q('#corr-export-issued-at').textContent = '—';
+    q('#corr-export-party').value = '';
+    q('#corr-export-description').value = '';
+    q('#corr-export-party-edit').value = '';
+    q('#corr-export-description-edit').value = '';
     q('#corr-export-file').value = '';
     q('#corr-export-attachment-list').replaceChildren();
     q('#corr-export-step-error').textContent = '';
@@ -239,50 +248,72 @@
     q('#corr-export-destination').value = 'outbox';
   }
 
-  async function openExport(preselectedId = '') {
+  async function openExport(draftId = '') {
     resetExportDialog();
-    const select = q('#corr-export-source'); select.replaceChildren();
-    const data = await server('/api/correspondence/exportable');
-    const items = data.items || [];
-    if (!items.length) {
-      const option = el('option', 'لا توجد معاملات معتمدة جاهزة للتصدير'); option.value = ''; select.append(option); select.disabled = true;
-    } else {
-      select.disabled = false;
-      for (const item of items) { const option = el('option', `${item.reference_no} — ${item.subject}`); option.value = item.id; select.append(option); }
-      if (preselectedId && items.some(x => x.id === preselectedId)) select.value = preselectedId;
-    }
-    q('#corr-export-party').value = '';
-    q('#corr-export-description').value = '';
     q('#corr-export-dialog').showModal();
+    if (draftId) await resumeExportDraft(draftId);
   }
 
-  function renderExportAttachments(attachments = []) {
+  async function resumeExportDraft(draftId) {
+    const data = await server(`/api/correspondence/${draftId}`);
+    const item = data.correspondence;
+    if (item.type !== 'outgoing' || item.status !== 'draft') throw new Error('هذه المعاملة ليست صادرة قيد الاستكمال.');
+    state.exportDraftId = item.id;
+    q('#corr-export-generated-no').textContent = item.dispatch_no || item.reference_no;
+    q('#corr-export-issued-at').textContent = fmtDate(item.dispatch_issued_at || item.created_at);
+    q('#corr-export-party-edit').value = item.external_party || '';
+    q('#corr-export-description-edit').value = item.body || item.subject || '';
+    q('#corr-export-step-one').hidden = true;
+    q('#corr-export-step-two').hidden = false;
+    renderExportAttachments(item.attachments || [], true);
+  }
+
+  function renderExportAttachments(attachments = [], canDelete = true) {
     const list = q('#corr-export-attachment-list'); list.replaceChildren();
-    if (!attachments.length) { list.append(el('p','لا توجد مرفقات مضافة.','muted')); return; }
+    if (!attachments.length) { list.append(el('p','لا توجد مرفقات مضافة. أرفق ملف المعاملة قبل الإرسال النهائي.','muted')); return; }
     for (const attachment of attachments) {
       const row = el('div', undefined, 'corr-attachment');
       const info = el('div'); info.append(el('strong', attachment.original_name), el('small', fmtSize(attachment.size), 'muted corr-line'));
-      row.append(info); list.append(row);
+      row.append(info);
+      if (canDelete) {
+        const remove = el('button', 'حذف', 'text-button delete'); remove.type = 'button';
+        remove.addEventListener('click', () => deleteExportAttachment(attachment.id, remove));
+        row.append(remove);
+      }
+      list.append(row);
     }
   }
 
   async function prepareExport() {
     const button = q('#corr-export-prepare'); button.disabled = true; q('#corr-export-step-error').textContent = '';
     try {
-      const sourceId = q('#corr-export-source').value;
       const externalParty = q('#corr-export-party').value.trim();
       const description = q('#corr-export-description').value.trim();
-      if (!sourceId) throw new Error('اختر المعاملة المراد تصديرها.');
       if (!externalParty) throw new Error('حدد المصدّر إليه.');
       if (!description) throw new Error('اكتب وصف الصادر.');
-      const data = await server(`/api/correspondence/${sourceId}/export/prepare`, { method: 'POST', data: { external_party: externalParty, description } });
+      const data = await server('/api/correspondence/outgoing/prepare', { method: 'POST', data: { external_party: externalParty, description } });
       state.exportDraftId = data.correspondence.id;
       q('#corr-export-generated-no').textContent = data.correspondence.dispatch_no;
-      q('#corr-export-source').disabled = true; q('#corr-export-party').disabled = true; q('#corr-export-description').disabled = true;
+      q('#corr-export-issued-at').textContent = fmtDate(data.correspondence.dispatch_issued_at || data.correspondence.created_at);
+      q('#corr-export-party-edit').value = data.correspondence.external_party || externalParty;
+      q('#corr-export-description-edit').value = data.correspondence.body || description;
       q('#corr-export-step-one').hidden = true; q('#corr-export-step-two').hidden = false;
-      renderExportAttachments(data.correspondence.attachments || []);
+      renderExportAttachments(data.correspondence.attachments || [], true);
+      await loadAll();
     } catch (error) { q('#corr-export-step-error').textContent = error.message; }
     finally { button.disabled = false; }
+  }
+
+  async function saveExportDraft(silent = false) {
+    if (!state.exportDraftId) throw new Error('لم يتم إصدار رقم الصادر بعد.');
+    const externalParty = q('#corr-export-party-edit').value.trim();
+    const description = q('#corr-export-description-edit').value.trim();
+    if (!externalParty) throw new Error('حدد المصدّر إليه.');
+    if (!description) throw new Error('اكتب وصف الصادر.');
+    const data = await server(`/api/correspondence/${state.exportDraftId}`, { method:'PATCH', data:{ external_party: externalParty, body: description } });
+    if (!silent) q('#corr-export-error').textContent = 'تم حفظ التعديلات.';
+    await loadAll();
+    return data.correspondence;
   }
 
   async function uploadExportAttachment() {
@@ -291,10 +322,25 @@
     if (!input.files[0]) { q('#corr-export-error').textContent = 'اختر ملفًا لإضافته.'; return; }
     button.disabled = true; q('#corr-export-error').textContent = '';
     try {
+      await saveExportDraft(true);
       const form = new FormData(); form.append('file', input.files[0]);
       await server(`/api/correspondence/${state.exportDraftId}/attachments`, { method:'POST', form });
       const detail = await server(`/api/correspondence/${state.exportDraftId}`);
-      renderExportAttachments(detail.correspondence.attachments || []); input.value = '';
+      renderExportAttachments(detail.correspondence.attachments || [], true); input.value = '';
+      await loadAll();
+    } catch (error) { q('#corr-export-error').textContent = error.message; }
+    finally { button.disabled = false; }
+  }
+
+  async function deleteExportAttachment(attachmentId, button) {
+    if (!state.exportDraftId) return;
+    if (!confirm('حذف هذا المرفق من المعاملة الصادرة؟')) return;
+    button.disabled = true; q('#corr-export-error').textContent = '';
+    try {
+      await server(`/api/correspondence/attachments/${attachmentId}`, { method:'DELETE' });
+      const detail = await server(`/api/correspondence/${state.exportDraftId}`);
+      renderExportAttachments(detail.correspondence.attachments || [], true);
+      await loadAll();
     } catch (error) { q('#corr-export-error').textContent = error.message; }
     finally { button.disabled = false; }
   }
@@ -303,22 +349,27 @@
     const button = q('#corr-export-send'); button.disabled = true; q('#corr-export-error').textContent = '';
     try {
       if (!state.exportDraftId) throw new Error('لم يتم إصدار رقم الصادر بعد.');
+      await saveExportDraft(true);
+      const detail = await server(`/api/correspondence/${state.exportDraftId}`);
+      if (!(detail.correspondence.attachments || []).length) throw new Error('أرفق ملف المعاملة قبل الإرسال النهائي.');
       const data = await server(`/api/correspondence/${state.exportDraftId}/send`, { method:'POST', data:{ destination:q('#corr-export-destination').value } });
       q('#corr-export-dialog').close(); state.exportDraftId = null; state.box = 'outbox';
       qa('.corr-tabs [data-box]').forEach(b => b.classList.toggle('active', b.dataset.box === 'outbox'));
-      alertMessage(`تم إرسال المعاملة برقم ${data.correspondence.dispatch_no}.`); await loadAll();
+      alertMessage(`تم إرسال المعاملة نهائيًا برقم ${data.correspondence.dispatch_no}.`); await loadAll();
       if (data.correspondence.status !== 'archived') await openDetail(data.correspondence.id);
     } catch (error) { q('#corr-export-error').textContent = error.message; }
     finally { button.disabled = false; }
   }
 
-  async function cancelExportDraft() {
-    const draftId = state.exportDraftId;
-    if (draftId) {
-      try { await server(`/api/correspondence/${draftId}/export-draft`, { method:'DELETE' }); }
-      catch (error) { q('#corr-export-error').textContent = error.message; return; }
-    }
-    state.exportDraftId = null; q('#corr-export-dialog').close();
+  async function closeExportDraft() {
+    try {
+      if (state.exportDraftId) await saveExportDraft(true);
+      q('#corr-export-dialog').close();
+      state.exportDraftId = null;
+      state.box = 'outbox';
+      qa('.corr-tabs [data-box]').forEach(b => b.classList.toggle('active', b.dataset.box === 'outbox'));
+      await loadAll();
+    } catch (error) { q('#corr-export-error').textContent = error.message; }
   }
 
   function actionButton(label, actionName, cls = 'quiet') {
@@ -341,7 +392,7 @@
       ['النوع', TYPE_LABELS[item.type]], ['الحالة', STATUS_LABELS[item.status]], ['الأولوية', PRIORITY_LABELS[item.priority]], ['السرية', CONF_LABELS[item.confidentiality]],
       ['المنشئ', item.creator_name], ['المحال إليه', item.current_assignee_name], ['الجهة الخارجية', item.external_party || '—']
     ];
-    if (item.type === 'outgoing') { fields.push(['رقم الصادر', item.dispatch_no || '—'], ['تاريخ الإرسال', item.sent_at ? fmtDate(item.sent_at) : '—']); }
+    if (item.type === 'outgoing') { fields.push(['رقم الصادر', item.dispatch_no || '—'], ['تاريخ إصدار الرقم', fmtDate(item.dispatch_issued_at || item.created_at)], ['تاريخ الإرسال', item.sent_at ? fmtDate(item.sent_at) : 'لم يتم الإرسال بعد']); }
     for (const [k,v] of fields) { const box=el('div',undefined,'corr-meta'); box.append(el('span',k),el('strong',v||'—')); meta.append(box); }
     root.append(meta);
     const bodyCard = el('section',undefined,'corr-detail-card'); bodyCard.append(el('h3','البيان'),el('p',item.body||'لا يوجد بيان.','corr-body-text')); root.append(bodyCard);
@@ -349,13 +400,13 @@
     const attachCard = el('section',undefined,'corr-detail-card'); attachCard.append(el('h3','المرفقات')); const list = el('div',undefined,'corr-attachments');
     for (const a of item.attachments || []) { const line=el('div',undefined,'corr-attachment'); const info=el('div'); info.append(el('strong',a.original_name),el('small',`${fmtSize(a.size)} · ${fmtDate(a.created_at)}`,'muted corr-line')); const d=el('button','تنزيل','text-button'); d.type='button'; d.addEventListener('click',()=>downloadAttachment(a)); line.append(info,d); list.append(line); }
     if (!(item.attachments||[]).length) list.append(el('p','لا توجد مرفقات.','muted')); attachCard.append(list);
-    if (item.permissions?.can_act || item.creator_username === state.me.user.username || state.me.user.role === 'admin') {
+    if ((item.type !== 'outgoing' || item.status === 'draft') && (item.permissions?.can_act || item.creator_username === state.me.user.username || state.me.user.role === 'admin')) {
       const form=el('form',undefined,'corr-attachment-form'); const input=document.createElement('input'); input.type='file'; input.required=true; input.accept='.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.csv,.zip'; const btn=el('button','إضافة مرفق','quiet'); btn.type='submit'; form.append(input,btn); form.addEventListener('submit',e=>uploadAttachment(e,input,btn)); attachCard.append(form);
     }
     root.append(attachCard);
 
     const actionCard = el('section',undefined,'corr-detail-card'); actionCard.append(el('h3','الإجراءات')); const buttons = el('div',undefined,'corr-action-buttons'); const p=item.permissions||{};
-    if (p.can_edit) { const edit=el('button','تعديل البيانات','quiet'); edit.type='button'; edit.addEventListener('click',()=>openEdit(item)); buttons.append(edit); }
+    if (p.can_edit && !(item.type === 'outgoing' && item.status === 'draft')) { const edit=el('button','تعديل البيانات','quiet'); edit.type='button'; edit.addEventListener('click',()=>openEdit(item)); buttons.append(edit); }
     if (p.can_act && item.status !== 'archived' && item.type !== 'outgoing') {
       if (p.can_route_up) buttons.append(actionButton(item.status==='returned'?'استكمال وإعادة الرفع':'إحالة للأعلى', item.status==='returned'?'resubmit':'route_up','primary'));
       if (p.can_route_up && item.status==='pending') buttons.append(actionButton('اعتماد ورفع للأعلى','approve_and_route','primary'));
@@ -363,7 +414,7 @@
       if (p.can_final_approve && !['approved','completed'].includes(item.status)) buttons.append(actionButton('اعتماد نهائي','approve_final','primary'));
       if (!['completed','approved'].includes(item.status)) buttons.append(actionButton('إنهاء الإجراء','complete','quiet'));
     }
-    if (p.can_export) { const exportBtn=el('button','تصدير المعاملة','primary'); exportBtn.type='button'; exportBtn.addEventListener('click',()=>{q('#corr-detail-dialog').close();openExport(item.id).catch(e=>alertMessage(e.message,true));}); buttons.append(exportBtn); }
+    if (p.can_resume_outgoing) { const resumeBtn=el('button','استكمال الصادر','primary'); resumeBtn.type='button'; resumeBtn.addEventListener('click',()=>{q('#corr-detail-dialog').close();openExport(item.id).catch(e=>alertMessage(e.message,true));}); buttons.append(resumeBtn); }
     buttons.append(actionButton('إضافة ملاحظة','comment','quiet'));
     actionCard.append(buttons); root.append(actionCard);
 
@@ -396,10 +447,10 @@
     document.addEventListener('click',event=>{const nav=event.target.closest?.('.nav-item'); if(nav&&!nav.classList.contains('correspondence-nav'))hideView();});
     q('#corr-new-btn').addEventListener('click',()=>{q('#corr-new-error').textContent='';q('#corr-new-dialog').showModal();});
     q('#corr-new-form').addEventListener('submit',createCorrespondence); q('#corr-export-form').addEventListener('submit',e=>e.preventDefault()); q('#corr-edit-form').addEventListener('submit',saveEdit);
-    q('#corr-export-prepare').addEventListener('click',()=>prepareExport()); q('#corr-export-upload').addEventListener('click',()=>uploadExportAttachment()); q('#corr-export-send').addEventListener('click',()=>sendExport()); q('#corr-export-cancel').addEventListener('click',()=>cancelExportDraft());
+    q('#corr-export-prepare').addEventListener('click',()=>prepareExport()); q('#corr-export-save').addEventListener('click',()=>saveExportDraft().catch(e=>{q('#corr-export-error').textContent=e.message;})); q('#corr-export-upload').addEventListener('click',()=>uploadExportAttachment()); q('#corr-export-send').addEventListener('click',()=>sendExport()); q('#corr-export-close-draft').addEventListener('click',()=>closeExportDraft());
     q('#corr-org-btn').addEventListener('click',()=>openOrg().catch(e=>alertMessage(e.message,true))); q('#corr-sync-users').addEventListener('click',syncUsers);
     q('#corr-export-tab').addEventListener('click',()=>openExport().catch(e=>alertMessage(e.message,true)));
-    qa('.corr-close').forEach(b=>b.addEventListener('click',()=>{ const dialog=b.closest('dialog'); if(dialog?.id==='corr-export-dialog'&&state.exportDraftId){ cancelExportDraft(); } else dialog?.close(); }));
+    qa('.corr-close').forEach(b=>b.addEventListener('click',()=>{ const dialog=b.closest('dialog'); if(dialog?.id==='corr-export-dialog'&&state.exportDraftId){ closeExportDraft(); } else dialog?.close(); }));
     qa('.corr-tabs [data-box]').forEach(b=>b.addEventListener('click',async()=>{state.box=b.dataset.box;qa('.corr-tabs [data-box]').forEach(x=>x.classList.toggle('active',x===b));await loadList();}));
     q('#corr-refresh').addEventListener('click',()=>loadAll()); q('#corr-status').addEventListener('change',()=>loadList().catch(e=>alertMessage(e.message,true))); q('#corr-include-archived').addEventListener('change',()=>loadList().catch(e=>alertMessage(e.message,true)));
     let timer; q('#corr-search').addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>loadList().catch(e=>alertMessage(e.message,true)),300);});
