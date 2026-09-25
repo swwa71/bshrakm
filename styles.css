@@ -328,7 +328,48 @@ body::after,.login-screen::before{display:none!important}
   object-fit:contain;
   background:transparent!important;
 }
+/* إخفاء البوابة إلى أن تنتهي حركة الدخول */
+#portal {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .55s ease;
+}
 
+body.portal-ready #portal {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* أثناء الانتقال تبقى شاشة الدخول فوق كل شيء */
+#login-screen {
+  z-index: 9999;
+}
+
+/* حركة الشعار بعد الترحيب */
+#login-screen.login-leaving .login-logo,
+#login-screen.login-leaving .login-art {
+  position: fixed;
+  top: 24px;
+  left: 28px;
+  width: 145px;
+  max-width: 32vw;
+  transform: none;
+  transition:
+    top .8s cubic-bezier(.22,.61,.36,1),
+    left .8s cubic-bezier(.22,.61,.36,1),
+    width .8s cubic-bezier(.22,.61,.36,1),
+    transform .8s cubic-bezier(.22,.61,.36,1);
+  z-index: 10001;
+}
+
+/* نخفي بيانات تسجيل الدخول أثناء انتقال الشعار */
+#login-screen.login-leaving .login-fields {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity .3s ease, transform .3s ease;
+}
 @media(max-width:780px){
   body::before{background-attachment:scroll!important}
   .login-screen{background:transparent!important}
