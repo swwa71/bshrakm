@@ -370,3 +370,30 @@ body.entry-running #login-screen{
   #login-screen.login-exit{transition:none!important;transform:none!important;opacity:0!important}
   #portal{transition:none!important}
 }
+
+/* 2026-09-25 workflow polish: immediate login feedback + nested folder context. */
+.login-success-greeting{
+  position:fixed;
+  inset:0;
+  z-index:10002;
+  display:grid;
+  place-items:center;
+  padding:24px;
+  font-size:clamp(1.8rem,4vw,3rem);
+  font-weight:800;
+  color:#17324d;
+  text-align:center;
+  background:rgba(247,251,253,.72);
+  backdrop-filter:blur(8px);
+  opacity:0;
+  transform:scale(.985);
+  pointer-events:none;
+  transition:opacity .18s ease,transform .18s ease;
+}
+.login-success-greeting[hidden]{display:none!important}
+.login-screen.login-success .login-success-greeting{opacity:1;transform:scale(1)}
+.login-screen.login-success .login-panel{filter:blur(1.5px);opacity:.34;transition:opacity .16s ease,filter .16s ease}
+#login-screen.login-exit{transition:transform .66s cubic-bezier(.22,.61,.36,1),opacity .45s ease}
+
+.folder-card .folder-path{display:block;margin-top:4px;font-size:.78rem;color:var(--muted,#71879a);font-weight:400}
+#create-folder-location{margin-top:-4px;margin-bottom:14px}

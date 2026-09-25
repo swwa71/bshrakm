@@ -90,7 +90,8 @@ function cancelEntryAnimation() {
   entrySequence++; clearTimeout(entryTimer);
   if (entryResolve) { entryResolve(false); entryResolve = null; }
   $('#welcome-screen').hidden = true; $('#welcome-screen').removeAttribute('data-phase');
-  $('#login-screen').classList.remove('login-leaving', 'login-exit');
+  $('#login-success-greeting').hidden = true;
+  $('#login-screen').classList.remove('login-leaving', 'login-exit', 'login-success');
   document.body.classList.remove('entry-running');
   $('#portal').inert = false; closeProfileMenu();
 }
@@ -112,17 +113,23 @@ function positionWelcomeIcon() {
 window.addEventListener('resize', positionWelcomeIcon, { passive: true });
 async function playEntryAnimation(sequence) {
   const screen = $('#login-screen');
-  // Keep the portal fully hidden while the entire login screen exits to the left.
-  $('#welcome-screen').hidden = true;
-  screen.classList.remove('login-leaving');
-  screen.classList.add('login-exit');
-  if (!await entryPause(820, sequence)) return;
-  screen.hidden = true;
-  screen.classList.remove('login-exit');
-  document.body.classList.remove('entry-running');
-  $('#portal').inert = false;
+  const greeting = $('#login-success-greeting');
+  const firstName = (currentUser?.name || currentUser?.username || '').trim().split(/\s+/)[0] || 'بك';
+  $('#login-success-name').textContent = firstName;
+  greeting.hidden = false;
+  screen.classList.remove('login-exit', 'login-leaving');
+  screen.classList.add('login-success');
+
+  // Give immediate feedback instead of leaving the submit state looking frozen.
   if (!await entryPause(360, sequence)) return;
-  $('#main-content').focus({ preventScroll: true });
+
+  // Move the complete login screen to the left as one piece.
+  screen.classList.add('login-exit');
+  if (!await entryPause(690, sequence)) return;
+
+  screen.hidden = true;
+  greeting.hidden = true;
+  screen.classList.remove('login-exit', 'login-success');
 }
 
 async function api(path, options = {}) {
@@ -186,11 +193,31 @@ document.addEventListener('visibilitychange', async () => {
   catch (e) { showError(e); }
 });
 
+function folderById(id) { return id ? folders.find(folder => folder.id === id) : null; }
+function folderPath(folder) {
+  if (!folder) return '';
+  const names = [], seen = new Set();
+  let current = folder;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id); names.unshift(current.name); current = folderById(current.parent_id);
+  }
+  return names.join(' / ');
+}
+function folderDepth(folder) {
+  let depth = 0, current = folderById(folder?.parent_id), seen = new Set();
+  while (current && !seen.has(current.id)) { seen.add(current.id); depth++; current = folderById(current.parent_id); }
+  return depth;
+}
 function fillFolders(select, placeholder, preserve = true) {
   const value = preserve ? select.value : '';
   select.replaceChildren();
   if (placeholder !== null) { const o = node('option', placeholder); o.value = ''; select.append(o); }
-  for (const f of folders) { const o = node('option', f.name); o.value = f.id; select.append(o); }
+  const ordered = [...folders].sort((a,b) => folderPath(a).localeCompare(folderPath(b), 'ar'));
+  for (const f of ordered) {
+    const depth = folderDepth(f);
+    const prefix = depth ? '↳ '.repeat(Math.min(depth, 3)) : '';
+    const o = node('option', prefix + f.name); o.value = f.id; select.append(o);
+  }
   if (folders.some(f => f.id === value)) select.value = value;
 }
 async function loadFolders() {
@@ -261,21 +288,43 @@ window.addEventListener('resize',()=>closeItemMenu());
 document.addEventListener('scroll',event=>{if(itemMenu&&!itemMenu.contains(event.target))closeItemMenu();},true);
 function renderFolderCards() {
   closeItemMenu();
-  const list=$('#folder-cards'),query=searchKey($('#file-search').value.trim());list.replaceChildren();
-  const visible=folders.filter(folder=>!query||searchKey(folder.name).includes(query)||files.some(file=>file.folder_id===folder.id&&fileMatches(file,query)));
-  for(const folder of visible){
-    const card=node('div',undefined,'folder-card');card.dataset.folderId=folder.id;
-    const selected=$('#file-folder').value===folder.id;card.classList.toggle('selected',selected);
-    const open=action('',()=>{$('#file-folder').value=folder.id;$('#upload-folder').value=folder.id;updateUpload();renderFolderCards();renderFiles();},'folder-open');
-    open.setAttribute('aria-pressed',String(selected));open.setAttribute('aria-label','فتح مجلد '+folder.name);
-    const icon=node('span',undefined,'folder-symbol');icon.setAttribute('aria-hidden','true');
-    icon.innerHTML='<svg viewBox="0 0 64 52" fill="none"><path d="M5 15V10a6 6 0 0 1 6-6h13l7 7h22a6 6 0 0 1 6 6v24a7 7 0 0 1-7 7H12a7 7 0 0 1-7-7V15Z" fill="currentColor" opacity=".24"/><path d="M5 21a6 6 0 0 1 6-6h42a6 6 0 0 1 6 6v20a7 7 0 0 1-7 7H12a7 7 0 0 1-7-7V21Z" fill="currentColor"/><path d="M15 25h20" stroke="white" stroke-width="3" stroke-linecap="round" opacity=".7"/></svg>';
-    open.append(icon,node('strong',folder.name));
-    const folderOptions=[{label:'أذونات الاطلاع',run:()=>openTargetShare('folder',folder)}];
-    if(currentUser?.role==='admin') folderOptions.push({label:'تغيير الاسم',run:()=>openFolderEditor(folder)});
-    card.append(open,itemMenuButton(folder.name,folderOptions));list.append(card);
+  const list = $('#folder-cards'), query = searchKey($('#file-search').value.trim());
+  const currentId = $('#file-folder').value || null;
+  list.replaceChildren();
+  let visible;
+  if (query) {
+    visible = folders.filter(folder => searchKey(folder.name).includes(query) || files.some(file => file.folder_id === folder.id && fileMatches(file, query)));
+  } else {
+    visible = folders.filter(folder => (folder.parent_id || null) === currentId);
   }
-  if(!visible.length)list.append(node('p',folders.length?'لا توجد مجلدات مطابقة للبحث.':'لم يخصص المسؤول أي مجلد لحسابك بعد.','muted folder-empty'));
+  visible.sort((a,b) => a.name.localeCompare(b.name, 'ar'));
+  for (const folder of visible) {
+    const card = node('div', undefined, 'folder-card'); card.dataset.folderId = folder.id;
+    const open = action('', () => {
+      $('#file-folder').value = folder.id;
+      $('#upload-folder').value = folder.id;
+      updateUpload(); renderFolderCards(); renderFiles();
+    }, 'folder-open');
+    open.setAttribute('aria-label', 'فتح مجلد ' + folder.name);
+    const icon = node('span', undefined, 'folder-symbol'); icon.setAttribute('aria-hidden', 'true');
+    icon.innerHTML='<svg viewBox="0 0 64 52" fill="none"><path d="M5 15V10a6 6 0 0 1 6-6h13l7 7h22a6 6 0 0 1 6 6v24a7 7 0 0 1-7 7H12a7 7 0 0 1-7-7V15Z" fill="currentColor" opacity=".24"/><path d="M5 21a6 6 0 0 1 6-6h42a6 6 0 0 1 6 6v20a7 7 0 0 1-7 7H12a7 7 0 0 1-7-7V21Z" fill="currentColor"/><path d="M15 25h20" stroke="white" stroke-width="3" stroke-linecap="round" opacity=".7"/></svg>';
+    const label = node('div'); label.append(node('strong', folder.name));
+    if (folder.parent_id) label.append(node('small', folderPath(folder), 'folder-path'));
+    open.append(icon, label);
+    const folderOptions = [{ label:'أذونات الاطلاع', run:()=>openTargetShare('folder',folder) }];
+    if (currentUser?.role === 'admin') {
+      folderOptions.push({ label:'إضافة مجلد داخله', run:()=>openCreateFolder(folder.id) });
+      folderOptions.push({ label:'تغيير الاسم', run:()=>openFolderEditor(folder) });
+    }
+    card.append(open, itemMenuButton(folder.name, folderOptions)); list.append(card);
+  }
+  const back = $('#clear-folder');
+  back.textContent = currentId ? 'رجوع' : 'عرض جميع المجلدات';
+  back.disabled = !currentId && !query;
+  if (!visible.length) {
+    const text = query ? 'لا توجد مجلدات مطابقة للبحث.' : currentId ? 'لا توجد مجلدات داخل هذا المجلد.' : (folders.length ? 'لا توجد مجلدات رئيسية متاحة.' : 'لم يخصص المسؤول أي مجلد لحسابك بعد.');
+    list.append(node('p', text, 'muted folder-empty'));
+  }
 }
 async function downloadFile(file) {
   const result=await api(`/api/files/${file.id}/download`),url=URL.createObjectURL(result.blob);
@@ -311,17 +360,48 @@ async function showView(view, focus = true) {
   if (!currentUser || !['files','upload','shares','admin','trash','audit'].includes(view) || (['admin','trash','audit'].includes(view) && currentUser.role !== 'admin')) return;
   closeItemMenu(); closeProfileMenu(); currentView = view; $('#notice').hidden = true;
   for (const name of ['files','upload','shares','admin','trash','audit']) $('#' + name + '-view').hidden = name !== view;   $$('.nav-item').forEach(b => { const active = b.dataset.view === view; b.classList.toggle('active',active); if (active) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
-  if (focus) $('#main-content').focus({ preventScroll: true });   if (view === 'files' || view === 'upload') { await loadFolders(); await loadFiles(); }   else if (view === 'shares') await loadShares();   else if (view === 'admin') await loadAdmin();   else if (view === 'trash') await loadTrash();   else await loadAudit(); } async function enterPortal(data, animate = false) {   cancelLoginIntro(); cancelEntryAnimation();   const sequence = entrySequence;   const withMotion = animate && !matchMedia('(prefers-reduced-motion: reduce)').matches;   currentUser = data.user; lastActivity = data.lastActive; idleMs = data.idleMs; lastHeartbeat = Date.now();   renderProfile();   $$('.admin-only').forEach(el => el.hidden = currentUser.role !== 'admin');$('#portal').hidden = false; $('#portal').inert = withMotion; $('#login-password').value = '';
+  if (focus) $('#main-content').focus({ preventScroll: true });   if (view === 'files' || view === 'upload') { await loadFolders(); await loadFiles(); }   else if (view === 'shares') await loadShares();   else if (view === 'admin') await loadAdmin();   else if (view === 'trash') await loadTrash();   else await loadAudit(); } async function enterPortal(data, animate = false) {
+  cancelLoginIntro();
+  cancelEntryAnimation();
+  const sequence = entrySequence;
+  const withMotion = animate && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  currentUser = data.user;
+  lastActivity = data.lastActive;
+  idleMs = data.idleMs;
+  lastHeartbeat = Date.now();
+  renderProfile();
+  $$('.admin-only').forEach(el => el.hidden = currentUser.role !== 'admin');
+  $('#portal').hidden = false;
+  $('#portal').inert = withMotion;
+  $('#login-password').value = '';
   if (withMotion) document.body.classList.add('entry-running');
   else $('#login-screen').hidden = true;
   $('#all-files-option').hidden = currentUser.role !== 'admin';
-  $('#file-scope').value = currentUser.role === 'admin' ? 'all' : 'own'; $('#file-folder').value = ''; $('#upload-folder').value = ''; $('#file-search').value = ''; $('#audit-search').value = '';
+  $('#file-scope').value = currentUser.role === 'admin' ? 'all' : 'own';
+  $('#file-folder').value = '';
+  $('#upload-folder').value = '';
+  $('#file-search').value = '';
+  $('#audit-search').value = '';
+
   try {
-    await showView('files',false);
+    // Load portal data in parallel with the transition so login never appears to freeze.
+    const loadPromise = showView('files', false);
+    if (withMotion) {
+      await playEntryAnimation(sequence);
+      if (sequence !== entrySequence || !currentUser) return;
+      document.body.classList.remove('entry-running');
+      $('#portal').inert = false;
+    }
+    await loadPromise;
     if (sequence !== entrySequence || !currentUser) return;
-    if (withMotion) await playEntryAnimation(sequence);
+    document.body.classList.remove('entry-running');
+    $('#portal').inert = false;
+    $('#main-content').focus({ preventScroll: true });
   } catch (error) {
-    if (sequence === entrySequence) { cancelEntryAnimation(); if (currentUser) $('#login-screen').hidden = true; }
+    if (sequence === entrySequence) {
+      cancelEntryAnimation();
+      if (currentUser) $('#login-screen').hidden = true;
+    }
     throw error;
   }
 }
@@ -350,7 +430,7 @@ $('#profile-form').addEventListener('submit',async event=>{
 $('#upload-folder').addEventListener('change',updateUpload); $('#upload-file').addEventListener('change',updateUpload);
 $('#file-scope').addEventListener('change',()=>loadFiles().catch(showError)); $('#file-folder').addEventListener('change',()=>{renderFiles();renderFolderCards();});
 $('#file-search').addEventListener('input',()=>{renderFolderCards();renderFiles();});
-$('#clear-folder').addEventListener('click',()=>{$('#file-folder').value='';renderFolderCards();renderFiles();});
+$('#clear-folder').addEventListener('click',()=>{const current=folderById($('#file-folder').value);const parent=current?.parent_id||'';$('#file-folder').value=parent;$('#upload-folder').value=parent;updateUpload();renderFolderCards();renderFiles();});
 $('#refresh-files').addEventListener('click',()=>loadFiles().catch(showError));
 $('#cancel-upload').addEventListener('click',()=>activeUpload?.abort());
 $('#upload-form').addEventListener('submit',async event=>{
@@ -447,33 +527,58 @@ async function loadAdmin() {
   const toggle=$('#toggle-sharing');toggle.setAttribute('aria-checked',String(sharingEnabled));toggle.textContent=sharingEnabled?'المشاركة مفتوحة · إغلاق':'المشاركة مغلقة · فتح';
   const body=$('#users-body');body.replaceChildren();
   for(const u of users){
-    const row=node('tr');row.append(node('td',u.name),node('td',u.username),node('td',u.jobTitle||'—'));const role=node('td');
+    const row=node('tr');row.append(node('td',u.name),node('td',u.username),node('td',u.jobTitle||'—'),node('td',u.managerName||'—'));const role=node('td');
     role.append(node('span',u.role==='admin'?'مسؤول نظام':'مستخدم عادي','role-badge'),node('span',!u.active?'موقوف':u.lockedUntil>Date.now()?'مقفل مؤقتًا':'مفعّل',!u.active||u.lockedUntil>Date.now()?'status-off':'status-on'));
     const edit=node('td'),actions=node('div',undefined,'admin-user-actions');
     actions.append(action('تعديل',()=>openUser(u)),...(u.role==='user'?[action('الصلاحيات',()=>openUser(u,true),'quiet')]:[]),action(u.active?'إيقاف الحساب':'تفعيل الحساب',async()=>{const result=await api(`/api/users/${u.id}`,{method:'PATCH',data:{...u,active:!u.active}});if(result.relogin)return logout('تم إيقاف حسابك.');await loadAdmin();notice(u.active?'تم إيقاف الحساب وإنهاء جلساته.':'تم تفعيل الحساب.');}),action('إنهاء الجلسات',async()=>{const result=await api(`/api/users/${u.id}/sessions`,{method:'POST'});if(result.relogin)return logout('تم إنهاء جلساتك.');await loadAdmin();notice('تم إنهاء جلسات المستخدم في هذه النسخة.');}));
     if(u.lockedUntil>Date.now())actions.append(action('فك القفل',async()=>{await api(`/api/users/${u.id}/unlock`,{method:'POST'});await loadAdmin();notice('تم فك القفل المؤقت.');}));
+    if(u.id!==currentUser.id)actions.append(action('حذف المستخدم',()=>deleteUserAccount(u),'danger'));
     edit.append(actions);row.append(role,edit);body.append(row);
   }
-  const list=$('#folders-list');list.replaceChildren();for(const f of folders){const item=node('div',undefined,'list-item');item.append(node('strong',f.name),action('تغيير الاسم',()=>openFolderEditor(f),'quiet'));list.append(item);}
+  const list=$('#folders-list');list.replaceChildren();for(const f of [...folders].sort((a,b)=>folderPath(a).localeCompare(folderPath(b),'ar'))){const item=node('div',undefined,'list-item'),label=node('div');label.append(node('strong',f.name));if(f.parent_id)label.append(node('small','داخل: '+folderPath(folderById(f.parent_id))));item.append(label,action('تغيير الاسم',()=>openFolderEditor(f),'quiet'));list.append(item);}
 }
 function openFolderEditor(folder) {
   if (currentUser?.role !== 'admin') return notice('تعديل المجلدات متاح لمسؤول النظام فقط.', true);
   $('#edit-folder-id').value=folder.id;$('#edit-folder-name').value=folder.name;$('#folder-error').textContent='';$('#folder-dialog').showModal();
 }
-function openCreateFolder() {
+function openCreateFolder(parentId = $('#file-folder').value || null) {
   if (currentUser?.role !== 'admin') return notice('إضافة المجلدات متاحة لمسؤول النظام فقط.', true);
-  $('#create-folder-form').reset();$('#create-folder-error').textContent='';$('#create-folder-dialog').showModal();
+  $('#create-folder-form').reset();
+  const parent = folderById(parentId);
+  $('#create-folder-parent-id').value = parent?.id || '';
+  $('#create-folder-title').textContent = parent ? 'إضافة مجلد داخل ' + parent.name : 'إضافة مجلد رئيسي';
+  $('#create-folder-location').textContent = parent ? 'الموقع: ' + folderPath(parent) : 'سيُنشأ المجلد في المستوى الرئيسي.';
+  $('#create-folder-error').textContent = '';
+  $('#create-folder-dialog').showModal();
   requestAnimationFrame(()=>$('#create-folder-name')?.focus());
 }
 function openUser(user, focusPermissions = false) {
-  $('#user-form').reset();$('#edit-user-id').value=user?.id||'';$('#user-name').value=user?.name||'';$('#user-username').value=user?.username||'';$('#user-role').value=user?.role||'user';
-  $('#user-job-title').value=user?.jobTitle||'';$('#user-password').required=!user;$('#user-dialog-title').textContent=user?'تعديل بيانات المستخدم':'إنشاء مستخدم';
+  $('#user-form').reset();
+  $('#edit-user-id').value=user?.id||'';
+  $('#user-name').value=user?.name||'';
+  $('#user-username').value=user?.username||'';
+  $('#user-role').value=user?.role||'user';
+  $('#user-job-title').value=user?.jobTitle||'';
+  $('#user-password').required=!user;
+  $('#user-dialog-title').textContent=user?'تعديل بيانات المستخدم':'إنشاء مستخدم';
   $('#password-hint').textContent=user?'اتركها فارغة للإبقاء عليها، أو أدخل كلمة جديدة من ٤ إلى ٢٠ خانة.':'من ٤ إلى ٢٠ خانة، دون اشتراط نوع معين.';
-  $('#user-active').checked=user?.active??true;$('#user-quota-gb').value=(user?.quotaBytes??10*1024**3)/1024**3;$('#user-all-folders').checked=user?.allFolders??true;
+  $('#user-active').checked=user?.active??true;
+  $('#user-quota-gb').value=(user?.quotaBytes??10*1024**3)/1024**3;
+  $('#user-all-folders').checked=user?.allFolders??true;
+
+  const manager = $('#user-manager');
+  manager.replaceChildren();
+  const placeholder = node('option','اختر المدير المباشر'); placeholder.value=''; manager.append(placeholder);
+  for (const candidate of users.filter(candidate => candidate.id !== user?.id && candidate.active)) {
+    const option=node('option',`${candidate.name} — ${candidate.jobTitle||candidate.username}`);option.value=candidate.id;manager.append(option);
+  }
+  manager.value=user?.managerId||'';
+  manager.required=!user;
+
   const options=$('#permission-options');options.replaceChildren();
   for(const [key,label] of Object.entries(permissionLabels)){const wrap=node('label',undefined,'check-label'),input=node('input');input.type='checkbox';input.dataset.permission=key;input.checked=user?.permissions?.[key]??true;wrap.append(input,document.createTextNode(label));options.append(wrap);}
   const folderOptions=$('#user-folder-options');folderOptions.replaceChildren();
-  for(const f of folders){const wrap=node('label',undefined,'check-label'),input=node('input');input.type='checkbox';input.value=f.id;input.checked=user?.folderIds?.includes(f.id)??false;wrap.append(input,document.createTextNode(f.name));folderOptions.append(wrap);}
+  for(const f of folders){const wrap=node('label',undefined,'check-label'),input=node('input');input.type='checkbox';input.value=f.id;input.checked=user?.folderIds?.includes(f.id)??false;wrap.append(input,document.createTextNode(folderPath(f)||f.name));folderOptions.append(wrap);}
   updateAccessFields();
   $('#user-error').textContent='';$('#user-dialog').showModal();
   if(focusPermissions && user?.role==='user') requestAnimationFrame(()=>$('#permission-options input')?.focus());
@@ -483,13 +588,13 @@ $('#user-form').addEventListener('submit',async event=>{
   event.preventDefault();const id=$('#edit-user-id').value;const password=$('#user-password').value;
   if((!id||password!=='')&&([...password].length<4||[...password].length>20)){$('#user-error').textContent='كلمة المرور يجب أن تكون من ٤ إلى ٢٠ خانة.';return;}
   event.submitter.disabled=true;
-  try{const result=await api(id?`/api/users/${id}`:'/api/users',{method:id?'PATCH':'POST',data:{name:$('#user-name').value,jobTitle:$('#user-job-title').value,username:$('#user-username').value,password,role:$('#user-role').value,active:$('#user-active').checked,quotaBytes:Math.round(Number($('#user-quota-gb').value)*1024**3),allFolders:$('#user-all-folders').checked,folderIds:$$('#user-folder-options input:checked').map(el=>el.value),permissions:Object.fromEntries($$('#permission-options input').map(el=>[el.dataset.permission,el.checked]))}});$('#user-dialog').close();$('#user-password').value='';if(result.relogin){await logout('تم تعديل بيانات دخولك أو صلاحياتك. سجّل الدخول مجددًا.');return;}if(id===currentUser.id){currentUser=result.user;renderProfile();}await loadAdmin();notice(id?'تم تحديث المستخدم وصلاحياته.':'تم إنشاء المستخدم.');}
+  try{const result=await api(id?`/api/users/${id}`:'/api/users',{method:id?'PATCH':'POST',data:{name:$('#user-name').value,jobTitle:$('#user-job-title').value,username:$('#user-username').value,password,role:$('#user-role').value,managerId:$('#user-manager').value||null,active:$('#user-active').checked,quotaBytes:Math.round(Number($('#user-quota-gb').value)*1024**3),allFolders:$('#user-all-folders').checked,folderIds:$$('#user-folder-options input:checked').map(el=>el.value),permissions:Object.fromEntries($$('#permission-options input').map(el=>[el.dataset.permission,el.checked]))}});$('#user-dialog').close();$('#user-password').value='';if(result.relogin){await logout('تم تعديل بيانات دخولك أو صلاحياتك. سجّل الدخول مجددًا.');return;}if(id===currentUser.id){currentUser=result.user;renderProfile();}await loadAdmin();notice(id?'تم تحديث المستخدم وصلاحياته.':'تم إنشاء المستخدم.');}
   catch(e){$('#user-error').textContent=e.message;}finally{event.submitter.disabled=false;}
 });
 $('#toggle-sharing').addEventListener('click',async event=>{event.currentTarget.disabled=true;try{await api('/api/settings',{method:'PATCH',data:{sharingEnabled:!sharingEnabled}});await loadAdmin();notice(sharingEnabled?'تم فتح المشاركة والاطلاع بين المستخدمين.':'تم إغلاق المشاركة والاطلاع بين المستخدمين.');}catch(e){showError(e);}finally{$('#toggle-sharing').disabled=false;}});
-$('#folder-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api('/api/folders',{method:'POST',data:{name:$('#folder-name').value}});$('#folder-name').value='';await loadAdmin();notice('تم إنشاء المجلد.');}catch(e){showError(e);}finally{event.submitter.disabled=false;}});
-$('#new-folder-files').addEventListener('click',openCreateFolder);
-$('#create-folder-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api('/api/folders',{method:'POST',data:{name:$('#create-folder-name').value}});$('#create-folder-dialog').close();await loadFolders();await loadFiles();renderFolderCards();notice('تم إنشاء المجلد.');}catch(e){$('#create-folder-error').textContent=e.message;}finally{event.submitter.disabled=false;}});
+$('#folder-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api('/api/folders',{method:'POST',data:{name:$('#folder-name').value,parent_id:null}});$('#folder-name').value='';await loadAdmin();notice('تم إنشاء المجلد.');}catch(e){showError(e);}finally{event.submitter.disabled=false;}});
+$('#new-folder-files').addEventListener('click',()=>openCreateFolder($('#file-folder').value||null));
+$('#create-folder-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api('/api/folders',{method:'POST',data:{name:$('#create-folder-name').value,parent_id:$('#create-folder-parent-id').value||null}});$('#create-folder-dialog').close();await loadFolders();await loadFiles();renderFolderCards();notice('تم إنشاء المجلد.');}catch(e){$('#create-folder-error').textContent=e.message;}finally{event.submitter.disabled=false;}});
 $('#folder-edit-form').addEventListener('submit',async event=>{event.preventDefault();event.submitter.disabled=true;try{await api(`/api/folders/${$('#edit-folder-id').value}`,{method:'PATCH',data:{name:$('#edit-folder-name').value}});$('#folder-dialog').close();await loadAdmin();notice('تم تغيير اسم المجلد.');}catch(e){$('#folder-error').textContent=e.message;}finally{event.submitter.disabled=false;}});
 function updateAccessFields(){ $('#user-access-fields').disabled=$('#user-role').value==='admin';$('#user-folder-options').hidden=$('#user-all-folders').checked; }
 $('#user-role').addEventListener('change',updateAccessFields);$('#user-all-folders').addEventListener('change',updateAccessFields);
@@ -497,6 +602,17 @@ $('#settings-form').addEventListener('submit',async event=>{
   event.preventDefault();event.submitter.disabled=true;
   try{const extensions=$('#setting-extensions').value.split(/[,،\s]+/).map(e=>e.replace(/^\./,'').toLowerCase()).filter(Boolean);await api('/api/settings',{method:'PATCH',data:{maxFileSize:Math.round(Number($('#setting-max-mb').value)*1024**2),extensions}});await loadAdmin();notice('تم حفظ حدود الملفات. تطبق على عمليات الرفع التالية.');}catch(e){showError(e);}finally{event.submitter.disabled=false;}
 });
+async function deleteUserAccount(user) {
+  const dialog=$('#confirm-dialog');
+  $('#confirm-message').textContent=`سيتم حذف حساب «${user.name}» نهائيًا. ستبقى ملفاته محفوظة في النظام باسم مستخدم محذوف.`;
+  dialog.returnValue='';dialog.showModal();
+  const result=await new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true}));
+  if(result!=='confirm')return;
+  await api(`/api/users/${user.id}`,{method:'DELETE'});
+  await loadAdmin();
+  notice('تم حذف المستخدم.');
+}
+
 async function loadTrash(){
   const data=await api('/api/trash'),body=$('#trash-body');body.replaceChildren();$('#trash-empty').hidden=data.files.length>0;
   for(const file of data.files){

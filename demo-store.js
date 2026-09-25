@@ -37,13 +37,14 @@
       u.active ??= true; u.permissions = { ...defaults(), ...u.permissions };
       u.allFolders ??= true; u.folderIds ||= []; u.quotaBytes ??= 2 * MAX_FILE_SIZE;
       u.failedAttempts ??= 0; u.lockedUntil ??= 0;
-      u.jobTitle ??= u.role === 'admin' ? 'مسؤول النظام' : ''; u.email ??= ''; u.phone ??= '';
+      u.jobTitle ??= u.role === 'admin' ? 'مسؤول النظام' : ''; u.email ??= ''; u.phone ??= ''; u.managerId ??= null;
     }
     for (const f of state.files) { f.deleted_at ??= null; f.updated_at ??= f.created_at; }
-    state.version = 4; return state;
+    state.version = 5; return state;
   }
   const usedBytes = (state, ownerId) => state.files.filter(f => f.owner_id === ownerId).reduce((n, f) => n + f.size, 0);
   const userView = (u, state) => ({ id: u.id, username: u.username, name: u.name, role: u.role, jobTitle: u.jobTitle, email: u.email, phone: u.phone,
+    managerId: u.managerId || null, managerName: state?.users.find(m => m.id === u.managerId)?.name || '',
     active: u.active, permissions: { ...u.permissions }, allFolders: u.allFolders, folderIds: [...u.folderIds],
     quotaBytes: u.quotaBytes, usedBytes: state ? usedBytes(state, u.id) : 0, lockedUntil: u.lockedUntil });
   const publicUser = u => ({ id: u.id, username: u.username, name: u.name, jobTitle: u.jobTitle });
@@ -94,7 +95,7 @@
   async function init() {
     if (!crypto?.subtle || !crypto?.randomUUID || !window.indexedDB) throw fail(503, 'استخدم متصفحًا حديثًا ورابط HTTPS، أو افتح ملف التجربة في Chrome أو Edge.');
     database = await openDatabase(); const existing = await read('state', 'portal');
-    if (existing) { if (existing.version !== 4) await save(migrate(existing)); return; }
+    if (existing) { if (existing.version !== 5) await save(migrate(existing)); return; }
     const users = [];
     for (const [username, name, role, password] of [['admin', 'مسؤول النظام', 'admin', '1234']]) {
       const salt = id(); users.push({ id: id(), username, name, role, revision: 1, salt, passwordHash: await passwordHash(password, salt) });
@@ -122,7 +123,9 @@
     const username = typeof input.username === 'string' ? input.username.trim().normalize('NFC') : '';
     const name = typeof input.name === 'string' ? input.name.trim() : '';
     const jobTitle = input.jobTitle ?? previous?.jobTitle ?? '', email = input.email ?? previous?.email ?? '', phone = input.phone ?? previous?.phone ?? '';
+    const managerId = input.managerId ?? previous?.managerId ?? null;
     if (typeof jobTitle !== 'string' || [...jobTitle].length > 100 || /[\p{C}]/u.test(jobTitle)) throw fail(400, 'المسمى الوظيفي يجب ألا يتجاوز ١٠٠ خانة.');
+    if (managerId !== null && (typeof managerId !== 'string' || !state.users.some(u => u.id === managerId && u.active))) throw fail(400, 'المدير المباشر غير صحيح أو غير مفعّل.');
     validateContact(email, phone);
     if (!username || [...username].length > 64 || /[\p{C}\s]/u.test(username)) throw fail(400, 'أدخل اسم مستخدم حتى ٦٤ خانة دون مسافات.');
     if (!name || [...name].length > 100 || !['admin', 'user'].includes(input.role)) throw fail(400, 'تحقق من الاسم والصلاحية.');
@@ -132,7 +135,7 @@
     if (typeof active !== 'boolean' || typeof allFolders !== 'boolean' || !Array.isArray(folderIds) || folderIds.some(f => !state.folders.some(d => d.id === f))) throw fail(400, 'إعدادات المجلدات أو حالة الحساب غير صحيحة.');
     if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 0 || quotaBytes > 1024 * 1024 ** 3) throw fail(400, 'حدد مساحة من صفر إلى ١٠٢٤ جيجابايت.');
     if (!permissions || PERMISSIONS.some(p => typeof permissions[p] !== 'boolean')) throw fail(400, 'الصلاحيات غير صحيحة.');
-    return { username, name, jobTitle: jobTitle.trim(), email: email.trim(), phone: phone.trim(), role: input.role, active, allFolders, folderIds: [...new Set(folderIds)], quotaBytes, permissions: Object.fromEntries(PERMISSIONS.map(p => [p, permissions[p]])) };
+    return { username, name, jobTitle: jobTitle.trim(), email: email.trim(), phone: phone.trim(), managerId, role: input.role, active, allFolders, folderIds: [...new Set(folderIds)], quotaBytes, permissions: Object.fromEntries(PERMISSIONS.map(p => [p, permissions[p]])) };
   }
   function validateContact(email, phone) {
     if (typeof email !== 'string' || email.length > 254 || (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))) throw fail(400, 'البريد الإلكتروني غير صحيح.');
@@ -313,18 +316,36 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
         audit(state, user, userAction[2] === 'sessions' ? 'إنهاء الجلسات' : 'فك قفل الحساب', target.name); await save(state);
         return { ok: true, relogin: target.id === user.id && userAction[2] === 'sessions' };
       }
+      if (/^\/api\/users\/[^/]+$/.test(path) && method === 'DELETE') {
+        requireAdmin(state);
+        const userId = path.split('/').at(-1);
+        const target = state.users.find(u => u.id === userId);
+        if (!target) throw fail(404, 'المستخدم غير موجود.');
+        if (target.id === user.id) throw fail(409, 'لا يمكنك حذف حساب مسؤول النظام الذي تستخدمه حاليًا.');
+        if (target.role === 'admin' && state.users.filter(u => u.role === 'admin').length === 1) throw fail(409, 'يجب أن يبقى مسؤول نظام واحد على الأقل.');
+        const ownedFileIds = new Set(state.files.filter(f => f.owner_id === target.id).map(f => f.id));
+        state.fileShares = state.fileShares.filter(s => !ownedFileIds.has(s.fileId) && s.viewerId !== target.id);
+        state.folderShares = state.folderShares.filter(s => s.ownerId !== target.id && s.viewerId !== target.id);
+        for (const u of state.users) if (u.managerId === target.id) u.managerId = null;
+        audit(state, user, 'حذف مستخدم', target.name, target.username);
+        state.users = state.users.filter(u => u.id !== target.id);
+        await save(state);
+        return { ok: true };
+      }
       if ((path === '/api/users' && method === 'POST') || (/^\/api\/users\/[^/]+$/.test(path) && method === 'PATCH')) {
         requireAdmin(state); const userId = method === 'POST' ? id() : path.split('/').at(-1);
         let updated = state.users.find(u => u.id === userId);
         if (method === 'PATCH' && !updated) throw fail(404, 'المستخدم غير موجود.');
         const c = validateUser(data, updated, state);
         if (method === 'POST' && !c.jobTitle) throw fail(400, 'أدخل المسمى الوظيفي للمستخدم.');
+        if (method === 'POST' && !c.managerId) throw fail(400, 'اختر المدير المباشر للمستخدم الجديد.');
+        if (c.managerId === userId) throw fail(400, 'لا يمكن أن يكون المستخدم مديرًا مباشرًا لنفسه.');
         if (state.users.some(u => u.id !== userId && keyOf(u.username) === keyOf(c.username))) throw fail(409, 'اسم المستخدم مستخدم بالفعل.');
         if (updated?.active && updated.role === 'admin' && (!c.active || c.role !== 'admin') && state.users.filter(u => u.active && u.role === 'admin').length === 1) throw fail(409, 'يجب أن يبقى مسؤول نظام مفعّل واحد على الأقل.');
         let changed = false;
         if (!updated) { const salt = id(); updated = { id: userId, ...c, salt, revision: 1, failedAttempts: 0, lockedUntil: 0, passwordHash: await passwordHash(data.password, salt) }; state.users.push(updated); }
         else {
-          changed = !!data.password || ['role', 'username', 'active', 'allFolders', 'folderIds', 'permissions'].some(k => JSON.stringify(updated[k]) !== JSON.stringify(c[k]));
+          changed = !!data.password || ['role', 'username', 'managerId', 'active', 'allFolders', 'folderIds', 'permissions'].some(k => JSON.stringify(updated[k]) !== JSON.stringify(c[k]));
           if (data.password) { const salt = id(), hash = await passwordHash(data.password, salt); updated.salt = salt; updated.passwordHash = hash; updated.failedAttempts = 0; updated.lockedUntil = 0; }
           if (changed) updated.revision++; Object.assign(updated, c);
         }
