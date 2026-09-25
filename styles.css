@@ -374,3 +374,16 @@ body.portal-ready #portal {
   body::before{background-attachment:scroll!important}
   .login-screen{background:transparent!important}
 }
+/* إخفاء واجهة النظام بالكامل أثناء الترحيب وحركة الأيقونة */
+body.entry-running #portal {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* تظهر الواجهة فقط بعد انتهاء الحركة */
+#portal {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity .45s ease;
+}
