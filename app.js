@@ -118,9 +118,9 @@ async function playEntryAnimation(sequence) {
   $('#login-screen').hidden = true;
   $('#welcome-name').textContent = firstName;
   $('#welcome-screen').hidden = false; $('#welcome-screen').dataset.phase = 'greeting';
-  if (!await entryPause(1200, sequence)) return;
+  if (!await entryPause(1600, sequence)) return;
   positionWelcomeIcon(); $('#welcome-screen').dataset.phase = 'docking';
-  if (!await entryPause(940, sequence)) return;
+  if (!await entryPause(1150, sequence)) return;
   cancelEntryAnimation(); $('#main-content').focus({ preventScroll: true });
 }
 
