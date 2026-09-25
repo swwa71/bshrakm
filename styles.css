@@ -516,3 +516,9 @@ body.entry-running #portal{
 @media (max-width: 700px) {
   .folder-breadcrumb { gap: 5px; padding: 8px 10px; border-radius: 12px; }
 }
+
+/* Cascading upload folder picker: root folders first, then direct children only. */
+.upload-folder-picker{min-width:0}
+.upload-subfolder-levels{display:grid;gap:12px;margin-top:12px}
+.upload-subfolder-level label{font-size:.8125rem;color:var(--muted);margin-bottom:6px}
+#upload-folder-path{margin-top:9px;line-height:1.7}

@@ -270,7 +270,7 @@ function setCurrentFolder(folderId = '') {
   hideCorrespondenceView();
   const value = folders.some(folder => folder.id === folderId) ? folderId : '';
   $('#file-folder').value = value;
-  $('#upload-folder').value = value;
+  setUploadFolderPath(value);
   updateUpload();
   renderFolderCards();
   renderFiles();
@@ -287,17 +287,114 @@ function fillFolders(select, placeholder, preserve = true) {
   }
   if (folders.some(f => f.id === value)) select.value = value;
 }
+function uploadFolderChildren(parentId = null) {
+  const normalized = parentId || null;
+  return folders
+    .filter(folder => (folder.parent_id || null) === normalized)
+    .sort((a,b) => a.name.localeCompare(b.name, 'ar'));
+}
+function uploadRootFolders() {
+  return folders
+    .filter(folder => !folder.parent_id || !folderById(folder.parent_id))
+    .sort((a,b) => a.name.localeCompare(b.name, 'ar'));
+}
+function getUploadTargetFolderId() {
+  const nested = [...$$('#upload-subfolder-levels select')].reverse().find(select => select.value);
+  return nested?.value || $('#upload-folder').value || '';
+}
+function updateUploadFolderPath() {
+  const path = $('#upload-folder-path');
+  if (!path) return;
+  const folder = folderById(getUploadTargetFolderId());
+  path.hidden = !folder;
+  path.textContent = folder ? 'المسار: ' + folderPath(folder) : '';
+}
+function appendUploadSubfolderLevel(parentId, selectedId = '') {
+  const children = uploadFolderChildren(parentId);
+  if (!children.length) return null;
+  const container = $('#upload-subfolder-levels');
+  const wrapper = node('div', undefined, 'upload-subfolder-level');
+  const label = node('label', 'المجلد الفرعي');
+  const select = document.createElement('select');
+  select.setAttribute('aria-label', 'المجلد الفرعي');
+  const placeholder = node('option', 'اختر مجلدًا فرعيًا (اختياري)');
+  placeholder.value = '';
+  select.append(placeholder);
+  for (const folder of children) {
+    const option = node('option', folder.name);
+    option.value = folder.id;
+    select.append(option);
+  }
+  if (children.some(folder => folder.id === selectedId)) select.value = selectedId;
+  select.addEventListener('change', () => {
+    let next = wrapper.nextElementSibling;
+    while (next) {
+      const remove = next;
+      next = next.nextElementSibling;
+      remove.remove();
+    }
+    if (select.value) appendUploadSubfolderLevel(select.value);
+    updateUpload();
+  });
+  wrapper.append(label, select);
+  container.append(wrapper);
+  return select;
+}
+function setUploadFolderPath(folderId = '') {
+  const rootSelect = $('#upload-folder');
+  const container = $('#upload-subfolder-levels');
+  rootSelect.replaceChildren();
+  const placeholder = node('option', 'اختر مجلدًا رئيسيًا');
+  placeholder.value = '';
+  rootSelect.append(placeholder);
+  for (const folder of uploadRootFolders()) {
+    const option = node('option', folder.name);
+    option.value = folder.id;
+    rootSelect.append(option);
+  }
+  container.replaceChildren();
+  const target = folderById(folderId);
+  if (!target) {
+    rootSelect.value = '';
+    updateUploadFolderPath();
+    return;
+  }
+  const trail = folderTrail(target);
+  const root = trail[0];
+  if (!root || ![...rootSelect.options].some(option => option.value === root.id)) {
+    updateUploadFolderPath();
+    return;
+  }
+  rootSelect.value = root.id;
+  let parentId = root.id;
+  for (let index = 1; index < trail.length; index++) {
+    appendUploadSubfolderLevel(parentId, trail[index].id);
+    parentId = trail[index].id;
+  }
+  appendUploadSubfolderLevel(parentId);
+  updateUploadFolderPath();
+}
+function handleUploadRootChange() {
+  const container = $('#upload-subfolder-levels');
+  container.replaceChildren();
+  if ($('#upload-folder').value) appendUploadSubfolderLevel($('#upload-folder').value);
+  updateUpload();
+}
 async function loadFolders() {
+  const previousUploadTarget = getUploadTargetFolderId();
   folders = (await api('/api/folders')).folders;
-  fillFolders($('#upload-folder'), 'اختر مجلدًا'); fillFolders($('#file-folder'), 'جميع المجلدات'); fillFolders($('#edit-file-folder'), null);
+  setUploadFolderPath(previousUploadTarget);
+  fillFolders($('#file-folder'), 'جميع المجلدات'); fillFolders($('#edit-file-folder'), null);
   renderFolderCards();
   updateUpload();
 }
 function updateUpload() {
-  const selected = !!$('#upload-folder').value;
+  const selected = !!getUploadTargetFolderId();
   $('#upload-file').disabled = !selected || !!activeUpload || !can('upload');
   $('#upload-button').disabled = !selected || !$('#upload-file').files.length || !!activeUpload || !can('upload');
   $('#upload-folder').disabled = !!activeUpload;
+  $$('#upload-subfolder-levels select').forEach(select => { select.disabled = !!activeUpload; });
+  updateUploadFolderPath();
   $('#file-hint').textContent = !can('upload') ? 'صلاحية رفع الملفات غير مفعلة لحسابك.' : selected ? 'اختر الملف الذي تريد رفعه إلى هذا المجلد.' : 'حدد المجلد لتتمكن من اختيار الملف.';
 }
 async function loadFiles() {
@@ -447,6 +544,7 @@ async function showView(view, focus = true) {
   $('#file-scope').value = currentUser.role === 'admin' ? 'all' : 'own';
   $('#file-folder').value = '';
   $('#upload-folder').value = '';
+  $('#upload-subfolder-levels')?.replaceChildren();
   $('#file-search').value = '';
   $('#audit-search').value = '';
 
@@ -494,7 +592,7 @@ $('#profile-form').addEventListener('submit',async event=>{
   event.preventDefault();event.submitter.disabled=true;
   try{const result=await api('/api/profile',{method:'PATCH',data:{...(currentUser.role==='admin'?{name:$('#profile-name').value,username:$('#profile-username').value}:{}),email:$('#profile-email').value,phone:$('#profile-phone').value}});currentUser=result.user;renderProfile();$('#profile-dialog').close();notice('تم حفظ بياناتك الشخصية.');}
   catch(error){$('#profile-error').textContent=error.message;}finally{event.submitter.disabled=false;} }); $$('.nav-item').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view).catch(showError)));
-$('#upload-folder').addEventListener('change',updateUpload); $('#upload-file').addEventListener('change',updateUpload);
+$('#upload-folder').addEventListener('change',handleUploadRootChange); $('#upload-file').addEventListener('change',updateUpload);
 $('#file-scope').addEventListener('change',()=>loadFiles().catch(showError)); $('#file-folder').addEventListener('change',()=>setCurrentFolder($('#file-folder').value));
 $('#file-search').addEventListener('input',()=>{renderFolderCards();renderFiles();});
 $('#clear-folder').addEventListener('click',()=>{const current=folderById($('#file-folder').value);setCurrentFolder(current?.parent_id||'');});
@@ -502,7 +600,7 @@ $('#refresh-files').addEventListener('click',()=>loadFiles().catch(showError));
 $('#cancel-upload').addEventListener('click',()=>activeUpload?.abort());
 $('#upload-form').addEventListener('submit',async event=>{
   event.preventDefault(); if (activeUpload) return;
-  const file = $('#upload-file').files[0], folder = $('#upload-folder').value;
+  const file = $('#upload-file').files[0], folder = getUploadTargetFolderId();
   if (!folder || !file) return notice('اختر المجلد والملف أولًا.',true);
   if (file.size > maxFileSize) return notice(`الحد الأقصى للملف الواحد ${sizeLabel(maxFileSize)}.`,true);
   const controller = new AbortController(); activeUpload = controller; updateUpload();

@@ -50,10 +50,10 @@
     });
   }());
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260925-folders-v7">
+  <link rel="stylesheet" href="styles.css?v=20260926-upload-folders-v8">
 <script src="server-config.js?v=20260924-tailscale-v1" defer></script>
 <script src="demo-store.js?v=20260925-workflow-v5" defer></script>
-<script src="app.js?v=20260925-folders-v7" defer></script>
+<script src="app.js?v=20260926-upload-folders-v8" defer></script>
 <link rel="stylesheet" href="correspondence.css?v=20260925-correspondence-v4">
 <script src="correspondence.js?v=20260925-correspondence-v4" defer></script>
 </head>
@@ -128,7 +128,7 @@
           <section class="upload-panel" aria-labelledby="upload-title">
             <div class="section-title"><h2 id="upload-title">رفع ملف جديد</h2><span class="step-label">اختر المجلد أولًا</span></div>
             <form id="upload-form">
-              <div class="upload-fields"><div><label for="upload-folder">المجلد المستهدف <span class="required">*</span></label><select id="upload-folder" required><option value="">اختر مجلدًا</option></select></div>
+              <div class="upload-fields"><div class="upload-folder-picker"><label for="upload-folder">المجلد المستهدف <span class="required">*</span></label><select id="upload-folder" required><option value="">اختر مجلدًا رئيسيًا</option></select><div id="upload-subfolder-levels" class="upload-subfolder-levels"></div><span id="upload-folder-path" class="field-hint" hidden></span></div>
                 <div class="file-field"><label for="upload-file">الملف <span class="required">*</span></label><input id="upload-file" type="file" required disabled><span id="file-hint" class="field-hint">حدد المجلد لتتمكن من اختيار الملف.</span></div>
                 <button id="upload-button" class="primary" type="submit" disabled>↑ رفع الملف</button></div>
               <div id="upload-progress-wrap" hidden><div class="progress-label"><span id="upload-status">جارٍ رفع الملف…</span><button type="button" id="cancel-upload" class="text-button">إلغاء الرفع</button></div><progress id="upload-progress" max="100" value="0" aria-label="تقدم رفع الملف"></progress></div>
