@@ -15,3 +15,25 @@
 
 .corr-export-draft-fields{display:grid;gap:10px;padding:14px 0;border-bottom:1px solid #e3edf2}.corr-export-draft-fields button{justify-self:start}.corr-dispatch-card>div{display:grid;gap:3px}.corr-dispatch-card>div+div{border-inline-start:1px solid #d8e8ef;padding-inline-start:16px}.status-draft{background:#fff6dc;color:#8a6700}
 @media(max-width:620px){.corr-dispatch-card{grid-template-columns:1fr}.corr-dispatch-card>div+div{border-inline-start:0;border-top:1px solid #d8e8ef;padding-inline-start:0;padding-top:10px}}
+
+/* v12: correspondence routing and unread notifications */
+.correspondence-nav{position:relative}.corr-nav-label{min-width:0}.corr-nav-badge{margin-inline-start:auto;min-width:22px;height:22px;padding:0 6px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:#c62828;color:#fff;font-size:.72rem;font-weight:800;line-height:1;box-shadow:0 2px 8px rgba(198,40,40,.22)}.corr-nav-badge[hidden]{display:none!important}
+.corr-unread-row{background:rgba(31,112,183,.055)}.corr-unread-row td{font-weight:600}.corr-new-badge{display:inline-flex;margin-inline-start:7px;padding:2px 7px;border-radius:999px;background:#1f70b7;color:#fff;font-size:.7rem;font-weight:800;vertical-align:middle}
+.corr-export-conditional{display:grid;gap:8px}.corr-export-conditional[hidden]{display:none!important}#corr-export-party-edit-wrap{display:grid;gap:8px}#corr-export-party-edit-wrap[hidden],#corr-export-destination-wrap[hidden]{display:none!important}
+.corr-current-holder{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0 2px;padding:11px 14px;border:1px solid #b8d8e8;border-radius:12px;background:#f4fbff;color:#50697e}.corr-current-holder strong{color:#17324d;font-size:1rem}
+.corr-route-recipient{display:flex;gap:10px;align-items:center;padding:12px 14px;border:1px solid #dce6f1;border-radius:12px;background:#f9fbfc;margin-bottom:10px}.corr-route-recipient span{color:#6c8294}.corr-route-recipient strong{color:#17324d}.corr-route-note{margin:5px 0 0;color:#53697b;white-space:pre-wrap}.corr-timeline-item strong{line-height:1.7}
+
+
+/* v13: sidebar consistency + compact three-dot correspondence actions */
+.sidebar .correspondence-nav{white-space:nowrap}
+.sidebar .correspondence-nav .corr-nav-label{font:inherit;font-size:inherit!important;font-weight:inherit;line-height:inherit;white-space:nowrap;width:auto!important;text-align:inherit!important}
+.correspondence-nav.active .corr-nav-label{font-weight:inherit}
+.corr-row-actions{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.corr-more-menu{position:relative;display:inline-block}
+.corr-more-menu>summary{list-style:none;cursor:pointer;display:inline-grid;place-items:center;width:34px;height:32px;border-radius:9px;color:#50697e;font-size:1.25rem;font-weight:700;user-select:none}
+.corr-more-menu>summary::-webkit-details-marker{display:none}.corr-more-menu>summary:hover{background:#eef5f8}
+.corr-more-menu-popover{position:absolute;z-index:40;inset-inline-end:0;top:calc(100% + 5px);min-width:180px;padding:6px;background:#fff;border:1px solid #dce6f1;border-radius:11px;box-shadow:0 12px 34px rgba(23,50,77,.16)}
+.corr-more-menu-popover button{width:100%;text-align:right;background:transparent;border:0;border-radius:8px;padding:9px 10px;font-size:.875rem}.corr-more-menu-popover button:hover{background:#f7f9fc}.corr-more-menu-popover .corr-more-delete{color:#b42318}
+
+/* v15: اختيار عدة مستلمين للصادر الداخلي */
+.corr-route-checks{display:grid;gap:10px;margin-top:4px}.corr-route-group{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px}.corr-route-group legend{font-weight:700;color:var(--ink)}.corr-route-group .check-label{margin:6px 0}

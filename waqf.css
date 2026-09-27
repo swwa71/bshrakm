@@ -1,0 +1,35 @@
+/* إدارة الأوقاف والأملاك - وحدة مستقلة للتجربة على GitHub Pages */
+#waqf-view{min-width:0}
+.waqf-shell{display:grid;gap:16px}
+.waqf-tabs{display:flex;flex-wrap:wrap;gap:8px;padding:10px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.82);box-shadow:0 8px 24px rgba(23,50,77,.04)}
+.waqf-tab{border:1px solid transparent;background:transparent;color:var(--muted);font:inherit;font-weight:700;padding:9px 13px;border-radius:11px;cursor:pointer;transition:.16s ease}
+.waqf-tab:hover,.waqf-tab:focus-visible{background:#f2f8fb;color:var(--ink)}
+.waqf-tab.active{background:#e8f5fb;color:#176ba4;border-color:#cfe8f5}
+.waqf-content{display:grid;gap:16px}
+.waqf-dashboard-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.waqf-stat{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px;min-height:102px;display:flex;flex-direction:column;justify-content:center;gap:5px;box-shadow:0 8px 24px rgba(23,50,77,.035)}
+.waqf-stat strong{font-size:1.45rem;color:var(--ink);line-height:1.2}
+.waqf-stat span{color:var(--muted);font-size:.88rem}
+.waqf-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.waqf-panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 8px 24px rgba(23,50,77,.035)}
+.waqf-panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}
+.waqf-panel h2,.waqf-panel h3{margin:0}
+.waqf-actions{display:flex;flex-wrap:wrap;gap:8px}
+.waqf-table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px}
+.waqf-table{width:100%;border-collapse:collapse;min-width:760px;background:#fff}
+.waqf-table th,.waqf-table td{text-align:right;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+.waqf-table th{background:#f7fafc;color:var(--muted);font-size:.82rem;font-weight:800}
+.waqf-table tr:last-child td{border-bottom:0}
+.waqf-empty{padding:28px 16px;text-align:center;color:var(--muted)}
+.waqf-badge{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border-radius:999px;background:#eef5f8;color:#456779;font-size:.78rem;font-weight:800}
+.waqf-badge.ok{background:#eaf7ef;color:#277044}.waqf-badge.warn{background:#fff4df;color:#8b5b0a}.waqf-badge.danger{background:#fff0f0;color:#9a3c3c}
+.waqf-list{display:grid;gap:8px}.waqf-list-item{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:#fbfdfe}.waqf-list-item small{display:block;color:var(--muted);margin-top:3px}
+.waqf-quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.waqf-quick button{min-height:48px}
+.waqf-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.waqf-toolbar .search-field{min-width:min(100%,320px)}
+.waqf-dialog{width:min(680px,calc(100vw - 28px));max-height:88vh;overflow:auto}.waqf-form{display:grid;gap:13px}.waqf-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.waqf-form textarea{min-height:90px;resize:vertical}
+.waqf-note{padding:10px 12px;border-radius:11px;background:#f5f9fb;color:var(--muted);font-size:.84rem;line-height:1.7}
+.waqf-report-value{font-weight:800;color:var(--ink)}
+.waqf-danger-link{color:#a83f3f!important}
+@media(max-width:1050px){.waqf-dashboard-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.waqf-quick{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){.waqf-grid-2,.waqf-form-grid{grid-template-columns:1fr}.waqf-dashboard-grid{grid-template-columns:1fr 1fr}.waqf-tabs{overflow:auto;flex-wrap:nowrap}.waqf-tab{white-space:nowrap}.waqf-toolbar{align-items:stretch}.waqf-toolbar>*{width:100%}.waqf-quick{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.waqf-dashboard-grid,.waqf-quick{grid-template-columns:1fr}}

@@ -1,8 +1,8 @@
-/* Demo accounts stay local; uploads also go to the configured server.
-   Browser-side roles are not a server security boundary. */
+/* Portal users, permissions and sessions are centralized on the server.
+   IndexedDB remains a local cache for file metadata and offline UI state. */
 (() => {
   'use strict';
-  const DB_NAME = 'bushrakom-html-demo-v1', SESSION_KEY = 'bushrakom-html-session-v1';
+  const DB_NAME = 'bushrakom-html-demo-v1', SESSION_KEY = 'bushrakom-html-session-v1', CENTRAL_TOKEN_KEY = 'bushrakom-server-token-v1';
   const IDLE_MS = 900000, MAX_FILE_SIZE = 5 * 1024 ** 3, LOCK_MS = 900000;
   // Resolve server settings only for an upload, so an offline server cannot block login.
   function serverConnection() {
@@ -14,13 +14,26 @@
     if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) throw fail(400, 'استخدم رابط HTTPS للسيرفر بدون اسم مستخدم أو كلمة مرور أو معاملات إضافية.');
     base.pathname = base.pathname.replace(/\/+$/, '') + '/';
     const headers = /(^|\.)loca\.lt$/i.test(base.hostname) ? { 'bypass-tunnel-reminder': 'true' } : undefined;
-    return { storageUrl: new URL('storage-info', base).href, uploadUrl: new URL('upload', base).href, headers };
+    return { storageUrl: new URL('storage-info', base).href, uploadUrl: new URL('api/files/upload', base).href, headers };
   }
-  const PERMISSIONS = ['upload', 'download', 'rename', 'move', 'delete', 'share'];
+  const ALLOWED_EXTENSIONS = [
+    'pdf','doc','docx','rtf','xls','xlsx','csv','ppt','pptx','pps','ppsx',
+    'jpg','jpeg','jfif','png','gif','webp','bmp','tif','tiff','heic','heif','avif','ico',
+    'mp4','mov','avi','mkv','webm','mpeg','mpg','m4v','3gp','3g2','wmv','flv','ogv','mts','m2ts','vob',
+    'txt','xml','ofx','qfx','qif','sta','mt940','940','bai','bai2','sif','ach'
+  ];
+  const PERMISSIONS = [
+    'upload','download','rename','move','delete','share','files_manage_all',
+    'folder_create','folder_rename','folder_delete',
+    'correspondence_view','correspondence_incoming','correspondence_outgoing','correspondence_manage_org',
+    'users_view','users_manage','settings_manage','trash_manage','audit_view','backup_manage'
+  ];
+  const ROLE_VALUES = ['admin','administrative','administrative_assistant','teacher','volunteer'];
+  const LEGACY_USER_DEFAULT_TRUE = new Set(['upload','download','rename','move','delete','share','correspondence_view','correspondence_incoming','correspondence_outgoing']);
   const fail = (status, message) => Object.assign(new Error(message), { status });
   const id = () => crypto.randomUUID();
   const keyOf = value => value.trim().normalize('NFKC').toLowerCase();
-  const defaults = () => Object.fromEntries(PERMISSIONS.map(p => [p, true]));
+  const defaults = (enabled = false) => Object.fromEntries(PERMISSIONS.map(p => [p, !!enabled]));
   let database, startup, queue = Promise.resolve();
 
   function migrate(state) {
@@ -30,24 +43,34 @@
       if (!state.folderShares.some(s => s.ownerId === grant.ownerId && s.viewerId === grant.viewerId && s.folderId === folder.id)) state.folderShares.push({ ...grant, folderId: folder.id });
     }
     state.shares = [];
-    // Upgrade the previous 1 GiB ceiling once; retain smaller administrator limits.
     if ((state.version || 0) < 4 && state.settings?.maxFileSize === 1024 ** 3) state.settings.maxFileSize = MAX_FILE_SIZE;
     state.settings ||= { maxFileSize: MAX_FILE_SIZE, extensions: [] };
+    state.settings.maxFileSize = Number.isSafeInteger(state.settings.maxFileSize) && state.settings.maxFileSize > 0 ? Math.min(state.settings.maxFileSize, MAX_FILE_SIZE) : MAX_FILE_SIZE;
+    // File types are controlled internally and are not editable from the portal UI.
+    state.settings.extensions = [...ALLOWED_EXTENSIONS];
     for (const u of state.users) {
-      u.active ??= true; u.permissions = { ...defaults(), ...u.permissions };
+      if (u.role === 'user') u.role = 'administrative';
+      if (!ROLE_VALUES.includes(u.role)) u.role = 'administrative';
+      u.active ??= true;
+      const previousPermissions = u.permissions || {};
+      u.permissions = Object.fromEntries(PERMISSIONS.map(permission => [permission,
+        u.role === 'admin' ? true : (permission in previousPermissions ? !!previousPermissions[permission] : LEGACY_USER_DEFAULT_TRUE.has(permission))
+      ]));
       u.allFolders ??= true; u.folderIds ||= []; u.quotaBytes ??= 2 * MAX_FILE_SIZE;
+      if (u.role === 'admin') u.allFolders = true;
       u.failedAttempts ??= 0; u.lockedUntil ??= 0;
-      u.jobTitle ??= u.role === 'admin' ? 'مسؤول النظام' : ''; u.email ??= ''; u.phone ??= ''; u.managerId ??= null;
+      u.jobTitle ??= u.role === 'admin' ? 'مسؤول النظام' : '';
+      u.department ??= ''; u.email ??= ''; u.phone ??= ''; u.managerId ??= null;
     }
     for (const f of state.files) { f.deleted_at ??= null; f.updated_at ??= f.created_at; }
-    state.version = 5; return state;
+    state.version = 6; return state;
   }
   const usedBytes = (state, ownerId) => state.files.filter(f => f.owner_id === ownerId).reduce((n, f) => n + f.size, 0);
-  const userView = (u, state) => ({ id: u.id, username: u.username, name: u.name, role: u.role, jobTitle: u.jobTitle, email: u.email, phone: u.phone,
+  const userView = (u, state) => ({ id: u.id, username: u.username, name: u.name, role: u.role, jobTitle: u.jobTitle, department: u.department || '', email: u.email, phone: u.phone,
     managerId: u.managerId || null, managerName: state?.users.find(m => m.id === u.managerId)?.name || '',
     active: u.active, permissions: { ...u.permissions }, allFolders: u.allFolders, folderIds: [...u.folderIds],
     quotaBytes: u.quotaBytes, usedBytes: state ? usedBytes(state, u.id) : 0, lockedUntil: u.lockedUntil });
-  const publicUser = u => ({ id: u.id, username: u.username, name: u.name, jobTitle: u.jobTitle });
+  const publicUser = u => ({ id: u.id, username: u.username, name: u.name, jobTitle: u.jobTitle, department: u.department || '', role: u.role });
   const allowed = (user, permission) => user.role === 'admin' || user.permissions[permission];
   const folderAllowed = (user, folderId) => user.role === 'admin' || user.allFolders || user.folderIds.includes(folderId);
   function requirePermission(user, permission) { if (!allowed(user, permission)) throw fail(403, 'هذه العملية غير مسموحة لحسابك.'); }
@@ -95,7 +118,7 @@
   async function init() {
     if (!crypto?.subtle || !crypto?.randomUUID || !window.indexedDB) throw fail(503, 'استخدم متصفحًا حديثًا ورابط HTTPS، أو افتح ملف التجربة في Chrome أو Edge.');
     database = await openDatabase(); const existing = await read('state', 'portal');
-    if (existing) { if (existing.version !== 5) await save(migrate(existing)); return; }
+    if (existing) { if (existing.version !== 6) await save(migrate(existing)); return; }
     const users = [];
     for (const [username, name, role, password] of [['admin', 'مسؤول النظام', 'admin', '1234']]) {
       const salt = id(); users.push({ id: id(), username, name, role, revision: 1, salt, passwordHash: await passwordHash(password, salt) });
@@ -114,45 +137,242 @@
     return { user, data };
   }
   function requireAdmin(state) { const s = session(state); if (s.user.role !== 'admin') throw fail(403, 'هذه العملية لمسؤول النظام.'); return s; }
+  function requireCapability(state, permission) { const s = session(state); requirePermission(s.user, permission); return s; }
+  function requireAnyCapability(state, permissions) { const s = session(state); if (s.user.role !== 'admin' && !permissions.some(p => !!s.user.permissions?.[p])) throw fail(403, 'هذه العملية غير مسموحة لحسابك.'); return s; }
   function canRead(state, user, file) {
     if (file.deleted_at !== null || !folderAllowed(user, file.folder_id)) return false;
-    return user.role === 'admin' || file.owner_id === user.id || (state.sharingEnabled && (
+    return user.role === 'admin' || allowed(user, 'files_manage_all') || file.owner_id === user.id || (state.sharingEnabled && (
       state.folderShares.some(s => s.ownerId === file.owner_id && s.folderId === file.folder_id && s.viewerId === user.id) || state.fileShares.some(s => s.fileId === file.id && s.viewerId === user.id)));
   }
   function validateUser(input, previous, state) {
     const username = typeof input.username === 'string' ? input.username.trim().normalize('NFC') : '';
     const name = typeof input.name === 'string' ? input.name.trim() : '';
-    const jobTitle = input.jobTitle ?? previous?.jobTitle ?? '', email = input.email ?? previous?.email ?? '', phone = input.phone ?? previous?.phone ?? '';
+    const jobTitle = input.jobTitle ?? previous?.jobTitle ?? '', department = input.department ?? previous?.department ?? '', email = input.email ?? previous?.email ?? '', phone = input.phone ?? previous?.phone ?? '';
     const managerId = input.managerId ?? previous?.managerId ?? null;
     if (typeof jobTitle !== 'string' || [...jobTitle].length > 100 || /[\p{C}]/u.test(jobTitle)) throw fail(400, 'المسمى الوظيفي يجب ألا يتجاوز ١٠٠ خانة.');
+    if (typeof department !== 'string' || [...department].length > 120 || /[\p{C}]/u.test(department)) throw fail(400, 'اسم الإدارة يجب ألا يتجاوز ١٢٠ خانة.');
     if (managerId !== null && (typeof managerId !== 'string' || !state.users.some(u => u.id === managerId && u.active))) throw fail(400, 'المدير المباشر غير صحيح أو غير مفعّل.');
     validateContact(email, phone);
     if (!username || [...username].length > 64 || /[\p{C}\s]/u.test(username)) throw fail(400, 'أدخل اسم مستخدم حتى ٦٤ خانة دون مسافات.');
-    if (!name || [...name].length > 100 || !['admin', 'user'].includes(input.role)) throw fail(400, 'تحقق من الاسم والصلاحية.');
-    const active = input.active ?? previous?.active ?? true, allFolders = input.allFolders ?? previous?.allFolders ?? true;
-    const folderIds = input.folderIds ?? previous?.folderIds ?? [], quotaBytes = input.quotaBytes ?? previous?.quotaBytes ?? 2 * MAX_FILE_SIZE;
-    const permissions = input.permissions ?? previous?.permissions ?? defaults();
+    if (!name || [...name].length > 100 || !ROLE_VALUES.includes(input.role)) throw fail(400, 'تحقق من الاسم ونوع المستخدم.');
+    const active = input.active ?? previous?.active ?? true;
+    let allFolders = input.allFolders ?? previous?.allFolders ?? false;
+    let folderIds = input.folderIds ?? previous?.folderIds ?? [], quotaBytes = input.quotaBytes ?? previous?.quotaBytes ?? 2 * MAX_FILE_SIZE;
+    let permissions = input.permissions ?? previous?.permissions ?? defaults(false);
+    if (input.role === 'admin') { allFolders = true; folderIds = []; permissions = defaults(true); }
     if (typeof active !== 'boolean' || typeof allFolders !== 'boolean' || !Array.isArray(folderIds) || folderIds.some(f => !state.folders.some(d => d.id === f))) throw fail(400, 'إعدادات المجلدات أو حالة الحساب غير صحيحة.');
     if (!Number.isSafeInteger(quotaBytes) || quotaBytes < 0 || quotaBytes > 1024 * 1024 ** 3) throw fail(400, 'حدد مساحة من صفر إلى ١٠٢٤ جيجابايت.');
     if (!permissions || PERMISSIONS.some(p => typeof permissions[p] !== 'boolean')) throw fail(400, 'الصلاحيات غير صحيحة.');
-    return { username, name, jobTitle: jobTitle.trim(), email: email.trim(), phone: phone.trim(), managerId, role: input.role, active, allFolders, folderIds: [...new Set(folderIds)], quotaBytes, permissions: Object.fromEntries(PERMISSIONS.map(p => [p, permissions[p]])) };
+    return { username, name, jobTitle: jobTitle.trim(), department: department.trim(), email: email.trim(), phone: phone.trim(), managerId, role: input.role, active, allFolders, folderIds: [...new Set(folderIds)], quotaBytes, permissions: Object.fromEntries(PERMISSIONS.map(p => [p, !!permissions[p]])) };
   }
   function validateContact(email, phone) {
     if (typeof email !== 'string' || email.length > 254 || (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))) throw fail(400, 'البريد الإلكتروني غير صحيح.');
     if (typeof phone !== 'string' || phone.length > 30 || (phone.trim() && !/^[+()\d\s-]+$/.test(phone.trim()))) throw fail(400, 'رقم الجوال غير صحيح.');
   }
   function validateFilename(name) { if (typeof name !== 'string' || !name.trim() || [...name].length > 240 || /[\p{C}\/\\]/u.test(name) || ['.', '..'].includes(name)) throw fail(400, 'اسم الملف غير صالح أو طويل جدًا.'); }
+  function extensionOf(name) { return name.includes('.') ? name.split('.').at(-1).toLowerCase() : ''; }
   function validateExtension(state, name) {
-    const ext = name.includes('.') ? name.split('.').at(-1).toLowerCase() : '';
-    if (state.settings.extensions.length && !state.settings.extensions.includes(ext)) throw fail(415, 'امتداد الملف غير مسموح حسب إعدادات النظام.');
+    if (!ALLOWED_EXTENSIONS.includes(extensionOf(name))) throw fail(415, 'نوع الملف غير مدعوم.');
+  }
+  function startsWithBytes(bytes, signature) { return signature.every((value, index) => bytes[index] === value); }
+  function looksText(bytes) {
+    if (!bytes.length) return true;
+    let controls = 0;
+    for (const b of bytes) { if (b === 0) return false; if (b < 9 || (b > 13 && b < 32)) controls++; }
+    return controls / bytes.length < 0.02;
+  }
+  async function validateFileContent(file) {
+    validateExtension(null, file.name);
+    const ext = extensionOf(file.name), bytes = new Uint8Array(await file.slice(0, 8192).arrayBuffer());
+    const ascii = new TextDecoder('utf-8', { fatal: false }).decode(bytes).replace(/^\uFEFF/, '').trimStart().toLowerCase();
+    const ole = startsWithBytes(bytes,[0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1]);
+    const zip = startsWithBytes(bytes,[0x50,0x4b,0x03,0x04]) || startsWithBytes(bytes,[0x50,0x4b,0x05,0x06]) || startsWithBytes(bytes,[0x50,0x4b,0x07,0x08]);
+    let valid = false;
+    if (ext === 'pdf') valid = ascii.startsWith('%pdf-');
+    else if (['doc','xls','ppt','pps'].includes(ext)) valid = ole;
+    else if (['docx','xlsx','pptx','ppsx'].includes(ext)) valid = zip;
+    else if (ext === 'rtf') valid = ascii.startsWith('{\\rtf');
+    else if (['jpg','jpeg','jfif'].includes(ext)) valid = startsWithBytes(bytes,[0xff,0xd8,0xff]);
+    else if (ext === 'png') valid = startsWithBytes(bytes,[0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]);
+    else if (ext === 'gif') valid = ascii.startsWith('gif87a') || ascii.startsWith('gif89a');
+    else if (ext === 'webp') valid = ascii.startsWith('riff') && ascii.slice(8,12) === 'webp';
+    else if (ext === 'bmp') valid = ascii.startsWith('bm');
+    else if (['tif','tiff'].includes(ext)) valid = startsWithBytes(bytes,[0x49,0x49,0x2a,0x00]) || startsWithBytes(bytes,[0x4d,0x4d,0x00,0x2a]);
+    else if (ext === 'ico') valid = startsWithBytes(bytes,[0x00,0x00,0x01,0x00]);
+    else if (['heic','heif','avif','mp4','mov','m4v','3gp','3g2'].includes(ext)) valid = bytes.length >= 12 && ascii.slice(4,8) === 'ftyp';
+    else if (ext === 'avi') valid = ascii.startsWith('riff') && ascii.slice(8,12) === 'avi ';
+    else if (['mkv','webm'].includes(ext)) valid = startsWithBytes(bytes,[0x1a,0x45,0xdf,0xa3]);
+    else if (ext === 'wmv') valid = startsWithBytes(bytes,[0x30,0x26,0xb2,0x75,0x8e,0x66,0xcf,0x11]);
+    else if (ext === 'flv') valid = ascii.startsWith('flv');
+    else if (ext === 'ogv') valid = ascii.startsWith('oggs');
+    else if (['mpeg','mpg','vob'].includes(ext)) valid = startsWithBytes(bytes,[0x00,0x00,0x01,0xba]) || startsWithBytes(bytes,[0x00,0x00,0x01,0xb3]);
+    else if (['mts','m2ts'].includes(ext)) valid = bytes[0] === 0x47 || bytes[4] === 0x47;
+    else valid = looksText(bytes);
+    if (!valid) throw fail(415, 'نوع الملف غير مدعوم.');
+    const mime = String(file.type || '').toLowerCase();
+    if (mime && mime !== 'application/octet-stream') {
+      const imageExt = new Set(['jpg','jpeg','jfif','png','gif','webp','bmp','tif','tiff','heic','heif','avif','ico']);
+      const videoExt = new Set(['mp4','mov','avi','mkv','webm','mpeg','mpg','m4v','3gp','3g2','wmv','flv','ogv','mts','m2ts','vob']);
+      const textExt = new Set(['txt','csv','xml','ofx','qfx','qif','sta','mt940','940','bai','bai2','sif','ach','rtf']);
+      if (imageExt.has(ext) && !mime.startsWith('image/')) throw fail(415, 'نوع الملف غير مدعوم.');
+      if (videoExt.has(ext) && !(mime.startsWith('video/') || ['application/ogg','application/x-matroska'].includes(mime))) throw fail(415, 'نوع الملف غير مدعوم.');
+      if (textExt.has(ext) && /(x-msdownload|x-dosexec|x-executable|x-sharedlib|java-archive)/.test(mime)) throw fail(415, 'نوع الملف غير مدعوم.');
+    }
   }
   function validateSettings(data, current) {
-    const maxFileSize = data.maxFileSize ?? current.maxFileSize, extensions = data.extensions ?? current.extensions;
+    const maxFileSize = data.maxFileSize ?? current.maxFileSize;
     if (!Number.isSafeInteger(maxFileSize) || maxFileSize < 1 || maxFileSize > MAX_FILE_SIZE) throw fail(400, 'حجم الملف يجب أن يكون أكبر من صفر ولا يتجاوز ٥ جيجابايت.');
-    if (!Array.isArray(extensions) || extensions.length > 100 || extensions.some(e => typeof e !== 'string' || !/^[a-z0-9]{1,15}$/.test(e))) throw fail(400, 'اكتب الامتدادات مثل pdf و docx دون نقطة.');
-    return { maxFileSize, extensions: [...new Set(extensions)] };
+    return { maxFileSize, extensions: [...ALLOWED_EXTENSIONS] };
+  }
+  function centralBaseUrl() {
+    const raw = window.BushrakomServer?.baseUrl;
+    if (typeof raw !== 'string' || !raw.trim()) throw fail(503, 'رابط السيرفر غير معد.');
+    let url;
+    try { url = new URL(raw.trim()); } catch { throw fail(400, 'رابط السيرفر غير صحيح.'); }
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw fail(400, 'رابط السيرفر غير صحيح.');
+    return url.href.replace(/\/+$/, '');
+  }
+  function centralToken() { return sessionStorage.getItem(CENTRAL_TOKEN_KEY) || ''; }
+  function authorizationHeader() { const token = centralToken(); return token ? `Bearer ${token}` : ''; }
+  async function centralFetch(path, { method = 'GET', data, auth = true } = {}) {
+    const headers = {};
+    if (data !== undefined) headers['Content-Type'] = 'application/json';
+    if (auth) {
+      const authorization = authorizationHeader();
+      if (!authorization) throw fail(401, 'انتهت الجلسة أو لم يتم تسجيل الدخول.');
+      headers.Authorization = authorization;
+    }
+    let response;
+    try {
+      response = await fetch(centralBaseUrl() + path, {
+        method, headers, body: data !== undefined ? JSON.stringify(data) : undefined,
+        mode: 'cors', credentials: 'omit', cache: 'no-store', redirect: 'error'
+      });
+    } catch {
+      throw fail(502, 'تعذر الاتصال بخدمة المستخدمين على السيرفر.');
+    }
+    let result = {};
+    try { result = await response.json(); } catch {}
+    if (!response.ok || result.success === false) {
+      const error = fail(response.status || 500, result.error || `تعذر إكمال العملية (${response.status}).`);
+      if (result.migrationRequired) error.migrationRequired = true;
+      throw error;
+    }
+    return result;
+  }
+  function mergeCentralUsers(state, incoming = []) {
+    if (!Array.isArray(incoming)) return;
+    const oldById = new Map((state.users || []).map(u => [u.id, u]));
+    const oldByName = new Map((state.users || []).map(u => [keyOf(u.username), u]));
+    state.users = incoming.map(u => {
+      const previous = oldById.get(u.id) || oldByName.get(keyOf(u.username)) || {};
+      return {
+        ...previous,
+        ...u,
+        role: u.role === 'user' ? 'administrative' : u.role,
+        permissions: { ...(u.permissions || {}) },
+        folderIds: [...(u.folderIds || [])],
+        failedAttempts: previous.failedAttempts ?? 0,
+        lockedUntil: u.lockedUntil ?? previous.lockedUntil ?? 0,
+        salt: previous.salt,
+        passwordHash: previous.passwordHash,
+      };
+    });
+  }
+  function setLocalSessionFromCentral(user, lastActive = Date.now()) {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id, revision: user.revision, lastActive }));
+  }
+  function migrationUsers(state) {
+    const byId = new Map(state.users.map(u => [u.id, u]));
+    return state.users.map(u => ({
+      id: u.id, username: u.username, name: u.name, role: u.role, jobTitle: u.jobTitle || '', department: u.department || '',
+      email: u.email || '', phone: u.phone || '', active: u.active !== false,
+      managerUsername: u.managerId ? (byId.get(u.managerId)?.username || null) : null,
+      permissions: { ...(u.permissions || {}) }, allFolders: !!u.allFolders, folderIds: [...(u.folderIds || [])],
+      quotaBytes: u.quotaBytes || 2 * MAX_FILE_SIZE, salt: u.salt, passwordHash: u.passwordHash, revision: u.revision || 1
+    }));
+  }
+  async function verifyLocalAdminForMigration(state, username, password) {
+    const user = state.users.find(u => keyOf(u.username) === keyOf(String(username || '')));
+    if (!user || user.role !== 'admin' || !user.active || !user.salt || !user.passwordHash) throw fail(403, 'نفّذ الترحيل الأول من الجهاز الأساسي بحساب مسؤول النظام الحالي.');
+    let valid = false;
+    try { valid = await passwordHash(password, user.salt) === user.passwordHash; } catch {}
+    if (!valid) throw fail(401, 'اسم المستخدم أو كلمة المرور غير صحيحة.');
+    return user;
+  }
+  async function centralLogin(data) {
+    let result;
+    try {
+      result = await centralFetch('/api/portal/login', { method: 'POST', data, auth: false });
+    } catch (error) {
+      if (!(error.status === 428 || error.migrationRequired)) throw error;
+      const status = await centralFetch('/api/portal/bootstrap/status', { auth: false });
+      if (!status.migrationOpen) throw error;
+      const migration = await lock(async () => {
+        const state = await read('state', 'portal');
+        const actor = await verifyLocalAdminForMigration(state, data.username, data.password);
+        return { actor_username: actor.username, users: migrationUsers(state) };
+      });
+      await centralFetch('/api/portal/bootstrap/import', { method: 'POST', data: migration, auth: false });
+      result = await centralFetch('/api/portal/login', { method: 'POST', data, auth: false });
+    }
+    sessionStorage.setItem(CENTRAL_TOKEN_KEY, result.token);
+    await lock(async () => {
+      const state = await read('state', 'portal');
+      mergeCentralUsers(state, result.directory || [result.user]);
+      setLocalSessionFromCentral(result.user, result.lastActive);
+      await save(state);
+    });
+    return { user: result.user, lastActive: result.lastActive, idleMs: result.idleMs };
+  }
+  async function centralMe() {
+    const result = await centralFetch('/api/portal/me');
+    return lock(async () => {
+      const state = await read('state', 'portal');
+      mergeCentralUsers(state, result.directory || [result.user]);
+      setLocalSessionFromCentral(result.user, result.lastActive);
+      await save(state);
+      return { user: result.user, lastActive: result.lastActive, idleMs: result.idleMs, sharingEnabled: state.sharingEnabled, ...state.settings };
+    });
+  }
+  async function centralLogout() {
+    try { if (centralToken()) await centralFetch('/api/portal/logout', { method: 'POST' }); } catch {}
+    sessionStorage.removeItem(CENTRAL_TOKEN_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
+    return { ok: true };
+  }
+  async function centralMappedRequest(path, options = {}) {
+    const mapped = '/api/portal' + path.slice(4);
+    const method = options.method || 'GET';
+    const result = await centralFetch(mapped, { method, data: method === 'GET' ? undefined : options.data });
+    if (path === '/api/password' && result.relogin) {
+      sessionStorage.removeItem(CENTRAL_TOKEN_KEY); sessionStorage.removeItem(SESSION_KEY);
+      return result;
+    }
+    return lock(async () => {
+      const state = await read('state', 'portal');
+      if (Array.isArray(result.users)) mergeCentralUsers(state, result.users);
+      else if (result.user) {
+        const current = state.users.filter(u => u.id !== result.user.id);
+        mergeCentralUsers(state, [...current, result.user]);
+      }
+      if (result.user && path === '/api/activity') setLocalSessionFromCentral(result.user, result.lastActive || Date.now());
+      if (result.relogin) { sessionStorage.removeItem(CENTRAL_TOKEN_KEY); sessionStorage.removeItem(SESSION_KEY); }
+      await save(state);
+      return result;
+    });
   }
   async function request(path, { method = 'GET', data = {} } = {}) {
+    if (path === '/api/login' && method === 'POST') return centralLogin(data);
+    if (path === '/api/logout' && method === 'POST') return centralLogout();
+    if (path === '/api/me' && method === 'GET') return centralMe();
+    if (path === '/api/profile' && method === 'PATCH') return centralMappedRequest(path, { method, data });
+    if (path === '/api/activity' && method === 'POST') return centralMappedRequest(path, { method, data });
+    if (path === '/api/password' && method === 'POST') return centralMappedRequest(path, { method, data });
+    if (path === '/api/users' || /^\/api\/users\/[^/]+(?:\/(?:sessions|unlock))?$/.test(path)) return centralMappedRequest(path, { method, data });
+
+    // The server is the source of truth for the current user and permissions.
+    await centralMe();
     return lock(async () => {
       const state = await read('state', 'portal');
       if (path === '/api/logout' && method === 'POST') {
@@ -178,12 +398,12 @@
       const { user, data: currentSession } = session(state);
       if (path === '/api/me' && method === 'GET') return { user: userView(user, state), lastActive: currentSession.lastActive, idleMs: IDLE_MS, sharingEnabled: state.sharingEnabled, ...state.settings };
       if (path === '/api/profile' && method === 'PATCH') {
-        const editable = user.role === 'admin' ? ['username', 'email', 'phone'] : ['email', 'phone'];
+        const editable = user.role === 'admin' ? ['name','jobTitle','department','username','email','phone'] : ['email','phone'];
         if (Object.keys(data).some(k => !editable.includes(k))) throw fail(403, 'يمكن للمستخدم تعديل البريد والجوال فقط. بيانات الهوية يحددها مسؤول النظام.');
         const updated = validateUser({ ...user, ...data }, user, state);
         if (state.users.some(u => u.id !== user.id && keyOf(u.username) === keyOf(updated.username))) throw fail(409, 'اسم المستخدم مستخدم بالفعل.');
         const changed = user.username !== updated.username;
-        user.username = updated.username; user.email = updated.email; user.phone = updated.phone;
+        user.name = updated.name; user.jobTitle = updated.jobTitle; user.department = updated.department; user.username = updated.username; user.email = updated.email; user.phone = updated.phone;
         if (changed) user.revision++;
         audit(state, user, 'تعديل الملف الشخصي'); await save(state);
         if (changed) { currentSession.revision = user.revision; sessionStorage.setItem(SESSION_KEY, JSON.stringify(currentSession)); }
@@ -216,11 +436,11 @@
   state.folders = folders;
   await save(state);
 
-  return { folders };
+  return { folders: folders.filter(folder => folderAllowed(user, folder.id)) };
 }
 
       if (path === '/api/folders' && method === 'POST') {
-        requireAdmin(state);
+        requireCapability(state, 'folder_create');
 
         const name = typeof data.name === 'string' ? data.name.trim() : '';
         if (!name || [...name].length > 30) throw fail(400, 'اسم المجلد مطلوب وبحد أقصى 30 حرفاً');
@@ -246,7 +466,7 @@
       }
 
      if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'PATCH') {
-  requireAdmin(state);
+  requireCapability(state, 'folder_rename');
 
   const folderId = path.split('/').at(-1);
   const name = typeof data.name === 'string' ? data.name.trim() : '';
@@ -284,7 +504,7 @@
 }
 
 if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
-  requireAdmin(state);
+  requireCapability(state, 'folder_delete');
 
   const folderId = path.split('/').at(-1);
 
@@ -308,20 +528,21 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
 
   return { ok: true };
 }
-      if (path === '/api/users' && method === 'GET') { requireAdmin(state); return { users: state.users.map(u => userView(u, state)) }; }
+      if (path === '/api/users' && method === 'GET') { requireAnyCapability(state, ['users_view','users_manage']); return { users: state.users.map(u => userView(u, state)) }; }
       const userAction = /^\/api\/users\/([^/]+)\/(sessions|unlock)$/.exec(path);
       if (userAction && method === 'POST') {
-        requireAdmin(state); const target = state.users.find(u => u.id === userAction[1]); if (!target) throw fail(404, 'المستخدم غير موجود.');
+        requireCapability(state, 'users_manage'); const target = state.users.find(u => u.id === userAction[1]); if (!target) throw fail(404, 'المستخدم غير موجود.');
         if (userAction[2] === 'sessions') target.revision++; else { target.lockedUntil = 0; target.failedAttempts = 0; }
         audit(state, user, userAction[2] === 'sessions' ? 'إنهاء الجلسات' : 'فك قفل الحساب', target.name); await save(state);
         return { ok: true, relogin: target.id === user.id && userAction[2] === 'sessions' };
       }
       if (/^\/api\/users\/[^/]+$/.test(path) && method === 'DELETE') {
-        requireAdmin(state);
+        requireCapability(state, 'users_manage');
         const userId = path.split('/').at(-1);
         const target = state.users.find(u => u.id === userId);
         if (!target) throw fail(404, 'المستخدم غير موجود.');
-        if (target.id === user.id) throw fail(409, 'لا يمكنك حذف حساب مسؤول النظام الذي تستخدمه حاليًا.');
+        if (target.id === user.id) throw fail(409, 'لا يمكنك حذف الحساب الذي تستخدمه حاليًا.');
+        if (target.role === 'admin' && user.role !== 'admin') throw fail(403, 'حسابات مسؤولي النظام يديرها مسؤول نظام فقط.');
         if (target.role === 'admin' && state.users.filter(u => u.role === 'admin').length === 1) throw fail(409, 'يجب أن يبقى مسؤول نظام واحد على الأقل.');
         const ownedFileIds = new Set(state.files.filter(f => f.owner_id === target.id).map(f => f.id));
         state.fileShares = state.fileShares.filter(s => !ownedFileIds.has(s.fileId) && s.viewerId !== target.id);
@@ -333,11 +554,14 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
         return { ok: true };
       }
       if ((path === '/api/users' && method === 'POST') || (/^\/api\/users\/[^/]+$/.test(path) && method === 'PATCH')) {
-        requireAdmin(state); const userId = method === 'POST' ? id() : path.split('/').at(-1);
+        requireCapability(state, 'users_manage'); const userId = method === 'POST' ? id() : path.split('/').at(-1);
         let updated = state.users.find(u => u.id === userId);
         if (method === 'PATCH' && !updated) throw fail(404, 'المستخدم غير موجود.');
         const c = validateUser(data, updated, state);
+        if (c.role === 'admin' && user.role !== 'admin') throw fail(403, 'منح صلاحية مسؤول النظام متاح لمسؤول نظام فقط.');
+        if (updated?.role === 'admin' && user.role !== 'admin') throw fail(403, 'حسابات مسؤولي النظام يديرها مسؤول نظام فقط.');
         if (method === 'POST' && !c.jobTitle) throw fail(400, 'أدخل المسمى الوظيفي للمستخدم.');
+        if (method === 'POST' && !c.department) throw fail(400, 'حدد الإدارة التابع لها المستخدم.');
         if (method === 'POST' && !c.managerId) throw fail(400, 'اختر المدير المباشر للمستخدم الجديد.');
         if (c.managerId === userId) throw fail(400, 'لا يمكن أن يكون المستخدم مديرًا مباشرًا لنفسه.');
         if (state.users.some(u => u.id !== userId && keyOf(u.username) === keyOf(c.username))) throw fail(409, 'اسم المستخدم مستخدم بالفعل.');
@@ -353,20 +577,20 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
         audit(state, user, method === 'POST' ? 'إنشاء حساب' : 'تعديل حساب وصلاحيات', updated.name); await save(state);
         return { user: userView(updated, state), relogin: changed && userId === user.id };
       }
-      if (path === '/api/settings' && method === 'GET') { requireAdmin(state); return { ...state.settings, sharingEnabled: state.sharingEnabled }; }
+      if (path === '/api/settings' && method === 'GET') { requireCapability(state, 'settings_manage'); return { ...state.settings, sharingEnabled: state.sharingEnabled }; }
       if (path === '/api/settings' && method === 'PATCH') {
-        requireAdmin(state);
+        requireCapability(state, 'settings_manage');
         if (data.sharingEnabled !== undefined && typeof data.sharingEnabled !== 'boolean') throw fail(400, 'قيمة المشاركة غير صحيحة.');
         state.settings = validateSettings(data, state.settings); state.sharingEnabled = data.sharingEnabled ?? state.sharingEnabled;
         audit(state, user, 'تعديل إعدادات النظام'); await save(state); return { ...state.settings, sharingEnabled: state.sharingEnabled };
       }
       if (path === '/api/dashboard' && method === 'GET') {
-        requireAdmin(state); return { users: state.users.length, activeUsers: state.users.filter(u => u.active).length,
+        requireAnyCapability(state, ['users_view','users_manage','settings_manage','folder_create','folder_rename','folder_delete','backup_manage']); return { users: state.users.length, activeUsers: state.users.filter(u => u.active).length,
           files: state.files.filter(f => f.deleted_at === null).length, trash: state.files.filter(f => f.deleted_at !== null).length,
           bytes: state.files.reduce((n, f) => n + f.size, 0), folders: state.folders.length };
       }
-      if (path === '/api/audit' && method === 'GET') { requireAdmin(state); return { entries: [...state.audit].reverse() }; }
-      if (path === '/api/trash' && method === 'GET') { requireAdmin(state); return { files: state.files.filter(f => f.deleted_at !== null).map(f => decorate(state, f)).sort((a, b) => b.deleted_at - a.deleted_at) }; }
+      if (path === '/api/audit' && method === 'GET') { requireCapability(state, 'audit_view'); return { entries: [...state.audit].reverse() }; }
+      if (path === '/api/trash' && method === 'GET') { requireCapability(state, 'trash_manage'); return { files: state.files.filter(f => f.deleted_at !== null).map(f => decorate(state, f)).sort((a, b) => b.deleted_at - a.deleted_at) }; }
       if (path === '/api/shares' && method === 'GET') {
         const recipients = state.users.filter(u => u.id !== user.id && u.active);
         const eligible = folderId => recipients.filter(u => folderAllowed(u, folderId)).map(u => u.id);
@@ -424,11 +648,11 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
       if (route) {
         const file = state.files.find(f => f.id === route[1]);
         if (route[2] === 'restore' && method === 'POST') {
-          requireAdmin(state); if (!file || file.deleted_at === null) throw fail(404, 'الملف غير موجود في سلة المحذوفات.');
+          requireCapability(state, 'trash_manage'); if (!file || file.deleted_at === null) throw fail(404, 'الملف غير موجود في سلة المحذوفات.');
           file.deleted_at = null; file.updated_at = Date.now(); audit(state, user, 'استعادة ملف', file.name); await save(state); return { ok: true };
         }
          if (route[2] === 'purge' && method === 'DELETE') {
-  requireAdmin(state);
+  requireCapability(state, 'trash_manage');
 
   if (!file || file.deleted_at === null) {
     throw fail(404, 'الملف غير موجود في سلة المحذوفات.');
@@ -456,7 +680,7 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
           requirePermission(user, 'download'); const blob = await read('files', file.id); if (!blob) throw fail(404, 'محتوى الملف غير موجود في المتصفح.');
           audit(state, user, 'تنزيل ملف', file.name); await save(state); return { name: file.name, blob };
         }
-        if (file.owner_id !== user.id && user.role !== 'admin') throw fail(403, 'إذن المشاركة يسمح بالاطلاع والتنزيل فقط.');
+        if (file.owner_id !== user.id && !allowed(user, 'files_manage_all')) throw fail(403, 'إذن المشاركة يسمح بالاطلاع والتنزيل فقط.');
         if (!route[2] && method === 'PATCH') {
           validateFilename(data.name);
           if (!state.folders.some(f => f.id === data.folderId) || !folderAllowed(user, data.folderId)) throw fail(403, 'المجلد غير مصرح لك به.');
@@ -513,7 +737,10 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
     if (file.size > freeBytes) throw fail(507, `المساحة المتبقية بالسيرفر (${freeGB} جيجابايت) غير كافية لرفع هذا الملف. لم يُرسل الملف.`);
   }
   async function upload(file, folderId, signal) {
+    await centralMe();
     const canceled = () => fail(499, 'أُلغي طلب الرفع. إذا كان الإرسال قد بدأ فتحقق من السيرفر قبل إعادة المحاولة.');
+    if (signal?.aborted) throw canceled();
+    await validateFileContent(file);
     if (signal?.aborted) throw canceled();
     const ticket = await lock(async () => {
       const user = validateUpload(await read('state', 'portal'), file, folderId);
@@ -534,12 +761,15 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
     // Do not hold the local database lock while transferring a large file.
     // Heartbeats, logout and administrator actions must remain responsive.
     try {
-      response = await fetch(connection.uploadUrl, { method: 'POST', body: formData, signal, mode: 'cors', credentials: 'omit', redirect: 'error', headers: connection.headers });
+      response = await fetch(connection.uploadUrl, { method: 'POST', body: formData, signal, mode: 'cors', credentials: 'omit', redirect: 'error', headers: { ...(connection.headers || {}), Authorization: authorizationHeader() } });
     } catch (error) {
       if (signal?.aborted || error.name === 'AbortError') throw canceled();
       throw fail(502, 'تعذّر تأكيد الرفع. تحقق من تشغيل الرابط العام وإعدادات اتصال البوابة بالسيرفر. راجع السيرفر قبل إعادة المحاولة.');
     }
-    if (!response.ok) throw fail(502, `لم يؤكد السيرفر الرفع (HTTP ${response.status}). تحقق من إعداداته وحجم الملف المسموح.`);
+    if (!response.ok) {
+      let serverError = {}; try { serverError = await response.json(); } catch {}
+      throw fail(response.status, serverError?.error || `لم يؤكد السيرفر الرفع (HTTP ${response.status}). تحقق من إعداداته وحجم الملف المسموح.`);
+    }
     let receipt;
     try { receipt = await response.json(); }
     catch {
@@ -570,7 +800,7 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
   const BACKUP_MAGIC = 'BSHRKM02';
   async function exportBackup() {
     return lock(async () => {
-      const state = await read('state', 'portal'), { user } = requireAdmin(state), blobs = [];
+      const state = await read('state', 'portal'), { user } = requireCapability(state, 'backup_manage'), blobs = [];
       for (const f of state.files) { const blob = await read('files', f.id); if (!blob || blob.size !== f.size) throw fail(409, `تعذّر نسخ الملف: ${f.name}`); blobs.push(blob); }
       audit(state, user, 'تصدير نسخة احتياطية'); await save(state);
       const header = new TextEncoder().encode(JSON.stringify({ format: BACKUP_MAGIC, state }));
@@ -581,9 +811,9 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
   }
   function validateBackupState(s) {
     const invalid = () => { throw fail(400, 'ملف النسخة الاحتياطية غير صالح.'); };
-    if (!s || ![2, 3, 4].includes(s.version) || typeof s.sharingEnabled !== 'boolean' || ['users', 'folders', 'files', 'shares', 'fileShares', 'audit'].some(k => !Array.isArray(s[k]))) invalid();
+    if (!s || ![2, 3, 4, 5, 6].includes(s.version) || typeof s.sharingEnabled !== 'boolean' || ['users', 'folders', 'files', 'shares', 'fileShares', 'audit'].some(k => !Array.isArray(s[k]))) invalid();
     if (s.version >= 3 && !Array.isArray(s.folderShares)) invalid();
-    if (s.version < 4) migrate(s);
+    if (s.version < 6) migrate(s);
     const unique = list => { const keys = new Set(); for (const x of list) { if (!x || typeof x.id !== 'string' || !x.id || x.id.length > 100 || keys.has(x.id)) invalid(); keys.add(x.id); } return keys; };
     const userIds = unique(s.users), folderIds = unique(s.folders), fileIds = unique(s.files); unique(s.audit);
     for (const f of s.folders) if (typeof f.name !== 'string' || !f.name.trim() || f.name.length > 160) invalid();
@@ -620,17 +850,17 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
     return { state, blobs };
   }
   async function inspectBackup(file) {
-    return lock(async () => { requireAdmin(await read('state', 'portal')); const { state } = await parseBackup(file);
+    return lock(async () => { requireCapability(await read('state', 'portal'), 'backup_manage'); const { state } = await parseBackup(file);
       return { users: state.users.length, files: state.files.length, bytes: state.files.reduce((n, f) => n + f.size, 0) }; });
   }
   async function restoreBackup(file) {
     return lock(async () => {
-      const oldState = await read('state', 'portal'), { user } = requireAdmin(oldState), { state, blobs } = await parseBackup(file);
+      const oldState = await read('state', 'portal'), { user } = requireCapability(oldState, 'backup_manage'), { state, blobs } = await parseBackup(file);
       session(oldState);
       for (const u of state.users) u.revision = Math.max(u.revision, oldState.users.find(x => x.id === u.id)?.revision || 0) + 1;
       audit(state, null, 'استعادة نسخة احتياطية', '', `بواسطة ${user.name}`);
       await save(state, { replace: blobs }); sessionStorage.removeItem(SESSION_KEY); return { ok: true };
     });
   }
-  window.DemoPortal = { request, upload, exportBackup, inspectBackup, restoreBackup };
+  window.DemoPortal = { request, upload, exportBackup, inspectBackup, restoreBackup, authorization: authorizationHeader };
 })();
