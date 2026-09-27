@@ -691,6 +691,6 @@
     let timer; q('#corr-search').addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>loadList().catch(e=>alertMessage(e.message,true)),300);});
   }
 
-  function start() { injectUi(); bind(); startNotificationPolling(); window.CorrespondenceModule = { open: openView, refresh: loadAll, version: VERSION }; }
+  function start() { if (window.BushrakomStandalone === true) return; injectUi(); bind(); startNotificationPolling(); window.CorrespondenceModule = { open: openView, refresh: loadAll, version: VERSION }; }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true }); else start();
 })();

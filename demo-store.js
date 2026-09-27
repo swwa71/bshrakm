@@ -35,6 +35,7 @@
   const keyOf = value => value.trim().normalize('NFKC').toLowerCase();
   const defaults = (enabled = false) => Object.fromEntries(PERMISSIONS.map(p => [p, !!enabled]));
   let database, startup, queue = Promise.resolve();
+  const standaloneMode = () => window.BushrakomStandalone === true || !(window.BushrakomServer?.baseUrl || '').trim();
 
   function migrate(state) {
     state.fileShares ||= []; state.folderShares ||= []; state.audit ||= [];
@@ -363,16 +364,17 @@
     });
   }
   async function request(path, { method = 'GET', data = {} } = {}) {
-    if (path === '/api/login' && method === 'POST') return centralLogin(data);
-    if (path === '/api/logout' && method === 'POST') return centralLogout();
-    if (path === '/api/me' && method === 'GET') return centralMe();
-    if (path === '/api/profile' && method === 'PATCH') return centralMappedRequest(path, { method, data });
-    if (path === '/api/activity' && method === 'POST') return centralMappedRequest(path, { method, data });
-    if (path === '/api/password' && method === 'POST') return centralMappedRequest(path, { method, data });
-    if (path === '/api/users' || /^\/api\/users\/[^/]+(?:\/(?:sessions|unlock))?$/.test(path)) return centralMappedRequest(path, { method, data });
-
-    // The server is the source of truth for the current user and permissions.
-    await centralMe();
+    if (!standaloneMode()) {
+      if (path === '/api/login' && method === 'POST') return centralLogin(data);
+      if (path === '/api/logout' && method === 'POST') return centralLogout();
+      if (path === '/api/me' && method === 'GET') return centralMe();
+      if (path === '/api/profile' && method === 'PATCH') return centralMappedRequest(path, { method, data });
+      if (path === '/api/activity' && method === 'POST') return centralMappedRequest(path, { method, data });
+      if (path === '/api/password' && method === 'POST') return centralMappedRequest(path, { method, data });
+      if (path === '/api/users' || /^\/api\/users\/[^/]+(?:\/(?:sessions|unlock))?$/.test(path)) return centralMappedRequest(path, { method, data });
+      // Production mode: the server is the source of truth for the current user and permissions.
+      await centralMe();
+    }
     return lock(async () => {
       const state = await read('state', 'portal');
       if (path === '/api/logout' && method === 'POST') {
@@ -416,118 +418,45 @@
         audit(state, user, 'تغيير كلمة المرور'); await save(state); sessionStorage.removeItem(SESSION_KEY); return { ok: true, relogin: true };
       }
       if (path === '/api/folders' && method === 'GET') {
-  const baseUrl = window.BushrakomServer?.baseUrl;
-  if (!baseUrl) throw fail(500, 'رابط السيرفر غير معد');
-
-  const response = await fetch(`${baseUrl}/api/folders`);
-  if (!response.ok) {
-    throw fail(response.status, 'تعذر تحميل المجلدات من السيرفر');
-  }
-
-  const result = await response.json();
-
-  const folders = (result.folders || []).map(folder => ({
-    id: String(folder.id),
-    name: String(folder.name),
-    parent_id: folder.parent_id ?? null
-  }));
-
-  // مزامنة المجلدات القادمة من السيرفر مع بيانات البوابة المحلية
-  state.folders = folders;
-  await save(state);
-
-  return { folders: folders.filter(folder => folderAllowed(user, folder.id)) };
-}
-
+        return { folders: state.folders.filter(folder => folderAllowed(user, folder.id)).map(folder => ({ ...folder })) };
+      }
       if (path === '/api/folders' && method === 'POST') {
         requireCapability(state, 'folder_create');
-
         const name = typeof data.name === 'string' ? data.name.trim() : '';
         if (!name || [...name].length > 30) throw fail(400, 'اسم المجلد مطلوب وبحد أقصى 30 حرفاً');
-
-        const baseUrl = window.BushrakomServer?.baseUrl;
-        if (!baseUrl) throw fail(500, 'رابط السيرفر غير معد');
-
-        const response = await fetch(`${baseUrl}/api/folders`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, parent_id: data.parent_id || null })
-        });
-
-        let result;
-        try { result = await response.json(); }
-        catch (_) { result = {}; }
-
-        if (!response.ok || !result.success) {
-          throw fail(response.status || 500, result.error || 'تعذر إنشاء المجلد');
-        }
-
-        return { folder: result.folder };
+        const parentId = data.parent_id || null;
+        if (parentId && !state.folders.some(f => f.id === parentId)) throw fail(400, 'المجلد الأب غير موجود.');
+        const folder = { id: id(), name, parent_id: parentId };
+        state.folders.push(folder);
+        audit(state, user, 'إنشاء مجلد', name);
+        await save(state);
+        return { folder: { ...folder } };
       }
-
-     if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'PATCH') {
-  requireCapability(state, 'folder_rename');
-
-  const folderId = path.split('/').at(-1);
-  const name = typeof data.name === 'string' ? data.name.trim() : '';
-
-  if (!name || [...name].length > 30) {
-    throw fail(400, 'اسم المجلد مطلوب وبحد أقصى 30 حرفاً');
-  }
-
-  const baseUrl = window.BushrakomServer?.baseUrl;
-  if (!baseUrl) throw fail(500, 'رابط السيرفر غير معد');
-
-  const response = await fetch(`${baseUrl}/api/folders/${folderId}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({ name })
-  });
-
-  const result = await response.json();
-
-  if (!response.ok || !result.success) {
-    throw fail(response.status || 500, result.error || 'تعذر تعديل المجلد');
-  }
-
-  const folder = state.folders.find(f => f.id === folderId);
-  if (folder) {
-    folder.name = name;
-    await save(state);
-  }
-
-  audit(state, user, 'تعديل مجلد', name);
-
-  return result.folder;
-}
-
-if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
-  requireCapability(state, 'folder_delete');
-
-  const folderId = path.split('/').at(-1);
-
-  const baseUrl = window.BushrakomServer?.baseUrl;
-  if (!baseUrl) throw fail(500, 'رابط السيرفر غير معد');
-
-  const response = await fetch(`${baseUrl}/api/folders/${folderId}`, {
-    method: 'DELETE'
-  });
-
-  const result = await response.json();
-
-  if (!response.ok || !result.success) {
-    throw fail(response.status || 500, result.error || 'تعذر حذف المجلد');
-  }
-
-  state.folders = state.folders.filter(f => f.id !== folderId);
-  await save(state);
-
-  audit(state, user, 'حذف مجلد', folderId);
-
-  return { ok: true };
-}
+      if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'PATCH') {
+        requireCapability(state, 'folder_rename');
+        const folderId = path.split('/').at(-1);
+        const folder = state.folders.find(f => f.id === folderId);
+        if (!folder) throw fail(404, 'المجلد غير موجود.');
+        const name = typeof data.name === 'string' ? data.name.trim() : '';
+        if (!name || [...name].length > 30) throw fail(400, 'اسم المجلد مطلوب وبحد أقصى 30 حرفاً');
+        folder.name = name;
+        audit(state, user, 'تعديل مجلد', name);
+        await save(state);
+        return { folder: { ...folder } };
+      }
+      if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
+        requireCapability(state, 'folder_delete');
+        const folderId = path.split('/').at(-1);
+        const folder = state.folders.find(f => f.id === folderId);
+        if (!folder) throw fail(404, 'المجلد غير موجود.');
+        if (state.folders.some(f => f.parent_id === folderId)) throw fail(409, 'احذف المجلدات الفرعية أولاً.');
+        if (state.files.some(f => f.folder_id === folderId && f.deleted_at === null)) throw fail(409, 'انقل أو احذف الملفات الموجودة داخل المجلد أولاً.');
+        state.folders = state.folders.filter(f => f.id !== folderId);
+        state.folderShares = (state.folderShares || []).filter(g => g.folderId !== folderId);
+        audit(state, user, 'حذف مجلد', folder.name);
+        await save(state);
+        return { ok: true };
+      }
       if (path === '/api/users' && method === 'GET') { requireAnyCapability(state, ['users_view','users_manage']); return { users: state.users.map(u => userView(u, state)) }; }
       const userAction = /^\/api\/users\/([^/]+)\/(sessions|unlock)$/.exec(path);
       if (userAction && method === 'POST') {
@@ -737,63 +666,59 @@ if (/^\/api\/folders\/[^/]+$/.test(path) && method === 'DELETE') {
     if (file.size > freeBytes) throw fail(507, `المساحة المتبقية بالسيرفر (${freeGB} جيجابايت) غير كافية لرفع هذا الملف. لم يُرسل الملف.`);
   }
   async function upload(file, folderId, signal) {
-    await centralMe();
-    const canceled = () => fail(499, 'أُلغي طلب الرفع. إذا كان الإرسال قد بدأ فتحقق من السيرفر قبل إعادة المحاولة.');
+    if (!standaloneMode()) await centralMe();
+    const canceled = () => fail(499, 'أُلغي طلب الرفع.');
     if (signal?.aborted) throw canceled();
     await validateFileContent(file);
     if (signal?.aborted) throw canceled();
+
+    if (standaloneMode()) {
+      return lock(async () => {
+        const state = await read('state', 'portal');
+        const user = validateUpload(state, file, folderId);
+        const now = Date.now();
+        const entry = { id: id(), owner_id: user.id, folder_id: folderId, name: file.name, size: file.size, created_at: now, updated_at: now, deleted_at: null };
+        state.files.push(entry);
+        audit(state, user, 'رفع ملف', file.name, 'حفظ محلي في نسخة GitHub التجريبية.');
+        await save(state, { id: entry.id, blob: file }, signal);
+        return entry;
+      });
+    }
+
     const ticket = await lock(async () => {
       const user = validateUpload(await read('state', 'portal'), file, folderId);
       return { userId: user.id, revision: user.revision };
     });
-    if (signal?.aborted) throw canceled();
-    // Check fresh server capacity without blocking local sessions or admin actions.
     const connection = serverConnection();
     await checkServerSpace(file, signal, connection);
     await lock(async () => {
       const user = validateUpload(await read('state', 'portal'), file, folderId);
       if (user.id !== ticket.userId || user.revision !== ticket.revision) throw fail(401, 'تغيرت جلسة الدخول أثناء تفقد المساحة. لم يُرسل الملف.');
     });
-    if (signal?.aborted) throw fail(499, 'أُلغي الرفع قبل إرسال الملف.');
+    if (signal?.aborted) throw canceled();
     const formData = new FormData();
     formData.append('file', file, file.name);
     let response;
-    // Do not hold the local database lock while transferring a large file.
-    // Heartbeats, logout and administrator actions must remain responsive.
     try {
       response = await fetch(connection.uploadUrl, { method: 'POST', body: formData, signal, mode: 'cors', credentials: 'omit', redirect: 'error', headers: { ...(connection.headers || {}), Authorization: authorizationHeader() } });
     } catch (error) {
       if (signal?.aborted || error.name === 'AbortError') throw canceled();
-      throw fail(502, 'تعذّر تأكيد الرفع. تحقق من تشغيل الرابط العام وإعدادات اتصال البوابة بالسيرفر. راجع السيرفر قبل إعادة المحاولة.');
+      throw fail(502, 'تعذّر تأكيد الرفع. تحقق من تشغيل الرابط العام وإعدادات اتصال البوابة بالسيرفر.');
     }
     if (!response.ok) {
       let serverError = {}; try { serverError = await response.json(); } catch {}
-      throw fail(response.status, serverError?.error || `لم يؤكد السيرفر الرفع (HTTP ${response.status}). تحقق من إعداداته وحجم الملف المسموح.`);
+      throw fail(response.status, serverError?.error || `لم يؤكد السيرفر الرفع (HTTP ${response.status}).`);
     }
     let receipt;
-    try { receipt = await response.json(); }
-    catch {
-      if (signal?.aborted) throw canceled();
-      throw fail(502, 'وصل رد ناجح من السيرفر، لكن صيغة الرد ليست JSON صالحًا. تحقق من وجود الملف في السيرفر قبل إعادة المحاولة.');
-    }
-    if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt) || receipt.success === false || receipt.ok === false || receipt.error) throw fail(502, 'لم يؤكد رد السيرفر نجاح الرفع. تحقق من وجود الملف قبل إعادة المحاولة.');
-    try {
-      return await lock(async () => {
-        if (signal?.aborted) throw canceled();
-        const state = await read('state', 'portal'), user = validateUpload(state, file, folderId);
-        if (user.id !== ticket.userId || user.revision !== ticket.revision) throw fail(401, 'تغيرت جلسة الدخول أثناء الرفع. سجّل الدخول مجددًا.');
-        const now = Date.now();
-        const entry = { id: id(), owner_id: user.id, folder_id: folderId, name: file.name, size: file.size, created_at: now, updated_at: now, deleted_at: null,
-          remote_uploaded_at: now, remote_filename: typeof receipt.fileName === 'string' ? receipt.fileName.slice(0, 500) : null };
-        state.files.push(entry); audit(state, user, 'رفع ملف', file.name, 'رُفع إلى السيرفر مع حفظ نسخة محلية للتجربة.');
-        await save(state, { id: entry.id, blob: file }, signal); return entry;
-      });
-    } catch (error) {
-      // A local save failure must not be reported as a remote upload failure.
-      error.serverUploaded = true;
-      error.message = `نجح رفع «${file.name}» إلى السيرفر، لكن لم تُحفظ نسخته في البوابة: ${error.message} لا تكرر الرفع لنفس الملف.`;
-      throw error;
-    }
+    try { receipt = await response.json(); } catch { throw fail(502, 'وصل رد ناجح من السيرفر، لكن صيغة الرد ليست JSON صالحًا.'); }
+    if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt) || receipt.success === false || receipt.ok === false || receipt.error) throw fail(502, 'لم يؤكد رد السيرفر نجاح الرفع.');
+    return lock(async () => {
+      const state = await read('state', 'portal'), user = validateUpload(state, file, folderId);
+      const now = Date.now();
+      const entry = { id: id(), owner_id: user.id, folder_id: folderId, name: file.name, size: file.size, created_at: now, updated_at: now, deleted_at: null, remote_uploaded_at: now, remote_filename: typeof receipt.fileName === 'string' ? receipt.fileName.slice(0, 500) : null };
+      state.files.push(entry); audit(state, user, 'رفع ملف', file.name, 'رُفع إلى السيرفر مع حفظ نسخة محلية للتجربة.');
+      await save(state, { id: entry.id, blob: file }, signal); return entry;
+    });
   }
 
   // A binary container avoids converting large files to base64 strings.

@@ -1,18 +1,7 @@
-const SERVER_BASE_URL = "https://bn.tail47c5b0.ts.net";
-
-window.BushrakomServer = {
-  baseUrl: SERVER_BASE_URL
-};
-
-window.SERVER_URL = SERVER_BASE_URL;
-window.API_URL = SERVER_BASE_URL;
-
-window.SERVER_CONFIG = {
-  serverUrl: SERVER_BASE_URL,
-  apiUrl: SERVER_BASE_URL
-};
-
-window.PORTAL_CONFIG = {
-  serverUrl: SERVER_BASE_URL,
-  apiUrl: SERVER_BASE_URL
-};
+// GitHub Pages test build: no production server connection.
+window.BushrakomStandalone = true;
+window.BushrakomServer = { baseUrl: "" };
+window.SERVER_URL = "";
+window.API_URL = "";
+window.SERVER_CONFIG = { serverUrl: "", apiUrl: "" };
+window.PORTAL_CONFIG = { serverUrl: "", apiUrl: "" };
